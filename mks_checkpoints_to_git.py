@@ -9,6 +9,7 @@ import sys
 import re
 import platform
 from datetime import datetime
+from operator import itemgetter
 
 # this is so windows doesn't output CR (carriage return) at the end of each line and just does LF (line feed)
 if platform.system() == 'Windows':
@@ -42,6 +43,39 @@ def remove_umlaut(string):
     string = string.replace(ss, b'ss')
     string = string.decode('utf-8')
     return string
+
+# Sorting the development path list by changing the MKS revision number string beforehand
+def sort_devpaths(devpath_list):
+    devpath_list_sort = []
+    rev_list_maxlen = 0
+    # As first step we need to know the maximum length of the MKS revision number
+    # e.g. revision number '1.43.1.27' leads to '4' list entries --> length == 4
+    for devpath in devpath_list:
+            length = len(devpath[1].split('.'))
+            rev_list_maxlen = max(length, rev_list_maxlen)
+    # As next step, we need to split revision number string and create a new list
+    for devpath in devpath_list:
+        revision_list = []
+        revision_string = ""
+        devpath_sort = {}
+        # split revision number string to list
+        revision_list = devpath[1].split('.')
+        # extend revision list to required length
+        while(len(revision_list) < rev_list_maxlen):
+            revision_list.append('0')
+        # modifiy list entries and generate string again
+        for i in range(len(revision_list)):
+            # add leading zeros to each list entry
+            revision_list[i] = revision_list[i].zfill(4)
+            # combine list entries again to one string without separator "."
+            revision_string += revision_list[i]
+        # Generate new devpath entry with this revision string for sorting
+        devpath_sort = devpath[0], devpath[1], revision_string
+        devpath_list_sort.append(devpath_sort)
+    # As a last step we use the new list element "revision string" for the sort operation
+    # Sort by new item 2 (revision string) first. Then sort by item 0 (devpath name string).
+    devpath_list_sort.sort(key=(itemgetter(2,0)))
+    return(devpath_list_sort)
 
 def inline_data(filename, code = 'M', mode = '644'):
     content = open(filename, 'rb').read()
@@ -99,8 +133,8 @@ def retrieve_devpaths():
     devpaths_re = re.compile('    (.+) \(([0-9][\.0-9]+)\)\n')
     devpath_col = devpaths_re.findall(devpaths)
     re.purge()
-    #devpath_col.sort(key=lambda x: map(int, x[1].split('.'))) #order development paths by version -> does not work in my case -> !!! ToDo !!!
-    return devpath_col
+    devpath_col_sort = sort_devpaths(devpath_col) #order development paths by version
+    return devpath_col_sort
 
 def export_to_git(revisions,devpath=0,ancestor=0):
     abs_sandbox_path = os.getcwd()
