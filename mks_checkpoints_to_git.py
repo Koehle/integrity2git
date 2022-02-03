@@ -106,6 +106,10 @@ def retrieve_revisions(devpath=0):
             version_cols = version.split('\t')
             revision = {}
             revision["number"] = version_cols[0]
+            if devpath: # check for invalid devpaths (they can be recognized by "revision numbers")
+                revision_list = revision["number"].split('.')
+                if(len(revision_list) <= 2): # All master branch revisions typically have 2 entries (e.g. '1.4')
+                    return revisions         # devpath revisions should have more than 2 entries (e.g. '1.4.1.9') - if not skip!
             revision["author"] = remove_umlaut(version_cols[1]) # because git fast-input expects 'utf-8' for "author"
             revision["seconds"] = int(time.mktime(datetime.strptime(version_cols[2], "%d.%m.%Y %H:%M:%S").timetuple()))
             # version_cols[5] == MKS Checkpoint Label (may be empty)
@@ -201,6 +205,8 @@ os.chdir('tmp')
 export_to_git(revisions) #export master branch first!!
 for devpath in devpaths:
     devpath_revisions = retrieve_revisions(devpath[0])
+    if(len(devpath_revisions) == 0): # Check number of revision entries for devpath (by "no entries" an invalid devpath is indicated).
+        continue                     # Skip invalid devpath!
     export_to_git(devpath_revisions,devpath[0].replace(' ','_'),devpath[1]) #branch names can not have spaces in git so replace with underscores
 #Drop the sandbox
 integrity_file = os.path.basename(sys.argv[1])
