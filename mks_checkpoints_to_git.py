@@ -91,6 +91,21 @@ def convert_revision_to_mark(revision):
         marks.append(revision)
     return marks.index(revision) + 1
 
+def get_last_mark_from_python():
+    return len(marks)
+
+def get_last_mark_from_file(filename):
+    # read "marks file" (with all existing "mark entries")
+    marks_file_list = open(filename, 'r').read().split('\n')
+    # get last mark of a previous import to git from this file
+    for entry in marks_file_list:
+        if(entry == ''):    # check for EOF and leave "for loop" if reached
+            continue        # the last entry or line of marks file is relevant
+        # extract the string between ":" and " "
+        last_file_mark = int(entry[(entry.find(":")+1):(entry.find(" "))])
+        # converted to an "int" we get the "mark" (number) inside this entry
+    return last_file_mark
+
 def retrieve_revisions(devpath=0):
     if devpath:
         pipe = Popen('si viewprojecthistory --rfilter=devpath:"%s" --project="%s"' % (devpath, sys.argv[1]), shell=True, bufsize=1024, stdout=PIPE)
@@ -140,7 +155,52 @@ def retrieve_devpaths():
     devpath_col_sort = sort_devpaths(devpath_col) #order development paths by version
     return devpath_col_sort
 
-def export_to_git(revisions,devpath=0,ancestor=0):
+def export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit):
+    # I noticed that the MKS client crashes when too many revisions are exported at once!
+    # This mechanism is intended to divide the export to git into several steps...
+    ancestor_devpath_mark = 0    # mark of the ancestor revision of a devpath
+    ancestor_mark = 0            # mark of the ancestor revision we will use to continue 
+    # Check "arguments" for abort condition (mark_limit) to prevent MKS / Java crash
+    # and "last_mark" to continue with an import after a previous abort due to limit.
+    if( last_mark ): # If there is a "last_mark" from a previous import
+        if( get_last_mark_from_python() < last_mark ):
+            # create NEW python internal "mark list", until the mark for the continuation is reached...
+            convert_revision_to_mark(revision["number"])
+            skip_this_revision = 1 # No export to git for this revision!
+        elif( get_last_mark_from_python() == last_mark ):
+            # The last mark is the ancestor for our current revision!
+            ancestor_mark = last_mark # remember it as ancestor to continue!
+            skip_this_revision = 0 # Export this revision to git!
+        elif( get_last_mark_from_python() >= (last_mark + mark_limit) ):
+            # Abort condition is defined by "last_mark" + "mark_limit"
+            skip_this_revision = 1 # No export to git for this revision!
+        else: # All revisions from "last_mark" to "last_mark + mark_limit"
+            skip_this_revision = 0 # Export this revision to git!
+    elif( mark_limit ): # If only "mark_limit" is defined
+        if( get_last_mark_from_python() >= mark_limit ):
+            # Abort condition is defined by one argument (mark limit) only!
+            skip_this_revision = 1 # No export to git for this revision!
+        else:
+            skip_this_revision = 0 # Export this revision to git!
+    # Check if this revision is skipped?
+    if not skip_this_revision:
+        # Check if there is an ancestor revision for a devpath?
+        if ancestor_devpath:
+            ancestor_devpath_mark = convert_revision_to_mark(ancestor_devpath)
+            # If there is no ancestor mark for continuation of MKS export and git import defined
+            if not ancestor_mark:
+                ancestor_mark = ancestor_devpath_mark
+            # We may want to continue based on a revision that is the ancestor for a devpath
+            # and also our "last_mark" from a previous import.
+            # In this case our "ancestor_mark" and the "ancestor_devpath_mark" must be identical,
+            # because there can be only one "mark" for the "from" statement of git fast-import...
+            elif( ancestor_devpath_mark != ancestor_mark ):
+                assert "Invalid revision or mark for continuation detected!"
+    # Return values ("ancestor_mark" replaces "ancestor_devpath_mark" from now on)
+    return skip_this_revision, ancestor_mark
+
+def export_to_git(revisions,devpath=0,ancestor_devpath=0,last_mark=0,mark_limit=0):
+    revisions_exported = 0
     abs_sandbox_path = os.getcwd()
     integrity_file = os.path.basename(sys.argv[1])
     if not devpath: #this is assuming that devpath will always be executed after the mainline import is finished
@@ -148,6 +208,11 @@ def export_to_git(revisions,devpath=0,ancestor=0):
     else:
         move_to_next_revision = 1
     for revision in revisions:
+        # Check abort conditions for exporting the current revision
+        skip_this_revision, ancestor_mark = export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit)
+        ancestor_devpath = 0 # reset to zero ("ancestor_mark" is relevant now!)
+        if skip_this_revision:
+            continue
         #revision_col = revision["number"].split('\.')
         mark = convert_revision_to_mark(revision["number"])
         if move_to_next_revision:
@@ -165,9 +230,11 @@ def export_to_git(revisions,devpath=0,ancestor=0):
         # The optional encoding command indicates the encoding of the commit message.
         sys.stdout.buffer.write(bytes(('encoding iso-8859-15\n'), 'utf-8')) #encoding for the following description ('iso-8859-15')
         sys.stdout.buffer.write(bytes(('data %d\n%s\n' % (len(revision["description"]), revision["description"])), 'iso-8859-15'))
-        if ancestor:
-            sys.stdout.buffer.write(bytes(('from :%d\n' % convert_revision_to_mark(ancestor)), 'utf-8')) #we're starting a development path so we need to start from it was originally branched from
-            ancestor = 0 #set to zero so it doesn't loop back in to here
+        if ancestor_mark:
+            # There are 2 cases where this code is relevant:
+            # 1) we're starting a development path so we need to start from it was originally branched from
+            # 2) we continue an earlier export and import at this point (start from there again)
+            sys.stdout.buffer.write(bytes(('from :%d\n' % ancestor_mark), 'utf-8')) 
         sys.stdout.buffer.write(b'deleteall\n')
         tree = os.walk('.')
         for dir in tree:
@@ -192,23 +259,55 @@ def export_to_git(revisions,devpath=0,ancestor=0):
         # Create a "lightweight tag" with "reset command" for this commit
         sys.stdout.buffer.write(bytes(('reset refs/tags/%s\n' % TmpStr), 'utf-8')) # MKS Checkpoint information as GIT tag
         sys.stdout.buffer.write(bytes(('from :%d\n' % mark), 'utf-8'))             # specify commit for this tag by "mark"
+        # Sum up exported revisions
+        revisions_exported +=1
+    # return the number of exported revisions
+    return revisions_exported
+
+def get_number_of_mks_revisions(devpaths=0):
+    mks_revisions_sum = 0
+    master_revisions = retrieve_revisions() # revisions for the master branch
+    mks_revisions_sum += len(master_revisions)
+    for devpath in devpaths:
+        devpath_revisions = retrieve_revisions(devpath[0])  # revisions for a specific development path
+        mks_revisions_sum += len(devpath_revisions)
+    return mks_revisions_sum    # sum of all revisions for the current MKS integrity project
 
 marks = []
+git_last_mark = 0
+git_mark_limit = 0
+mks_revisions_exported = 0
 devpaths = retrieve_devpaths()
 revisions = retrieve_revisions()
 #Change directory to GIT directory (if argument is available)
 if (len(sys.argv) > 2):
     os.chdir('%s' % (sys.argv[2]))
+# check for .git directory
+assert os.path.isdir(".git"), "Call git init first"
+# check if we should read a file with git marks from a previous git fast-import?
+if( (len(sys.argv) > 3) and (sys.argv[3] != "") ):
+    if (os.path.isfile(sys.argv[3])): # check if file exists?
+        git_last_mark = get_last_mark_from_file(sys.argv[3])
+# check whether a maximum number of revisions to be processed has been defined?
+if( (len(sys.argv) > 4) and (sys.argv[4] != "") and (int(sys.argv[4]) != 0) ):
+    git_mark_limit = int(sys.argv[4])
 #Create a build sandbox of the first revision
 os.system('si createsandbox --populate --recurse --project="%s" --projectRevision=%s tmp' % (sys.argv[1], revisions[0]["number"]))
 os.chdir('tmp')
-export_to_git(revisions) #export master branch first!!
+mks_revisions_exported += export_to_git(revisions,0,0,git_last_mark,git_mark_limit) #export master branch first!!
 for devpath in devpaths:
     devpath_revisions = retrieve_revisions(devpath[0])
     if(len(devpath_revisions) == 0): # Check number of revision entries for devpath (by "no entries" an invalid devpath is indicated).
         continue                     # Skip invalid devpath!
-    export_to_git(devpath_revisions,devpath[0].replace(' ','_'),devpath[1]) #branch names can not have spaces in git so replace with underscores
+    mks_revisions_exported += export_to_git(devpath_revisions,devpath[0].replace(' ','_'),devpath[1],git_last_mark,git_mark_limit) #branch names can not have spaces in git so replace with underscores
 #Drop the sandbox
 integrity_file = os.path.basename(sys.argv[1])
 os.chdir("..") #leave 'tmp' and return to GIT directory
 os.system("si dropsandbox --yes -f --delete=all tmp/%s" % (integrity_file))
+# Calculation of remaining MKS revisions (after running this script) as a reminder for a later run of this script
+mks_revisions_left = (get_number_of_mks_revisions(devpaths) - mks_revisions_exported - git_last_mark)
+# Write remaining MKS revisions to a file in .git directory (overwrite file 'w' if it exists)
+os.chdir(".git")
+with open('revisions_left.txt', 'w') as f:
+    f.write('%d' % mks_revisions_left)
+# This file can be read to decide if the script needs to be called again.
