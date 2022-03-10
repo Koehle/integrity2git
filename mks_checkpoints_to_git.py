@@ -203,10 +203,6 @@ def export_to_git(revisions,devpath=0,ancestor_devpath=0,last_mark=0,mark_limit=
     revisions_exported = 0
     abs_sandbox_path = os.getcwd()
     integrity_file = os.path.basename(sys.argv[1])
-    if not devpath: #this is assuming that devpath will always be executed after the mainline import is finished
-        move_to_next_revision = 0
-    else:
-        move_to_next_revision = 1
     for revision in revisions:
         # Check abort conditions for exporting the current revision
         skip_this_revision, ancestor_mark = export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit)
@@ -215,10 +211,9 @@ def export_to_git(revisions,devpath=0,ancestor_devpath=0,last_mark=0,mark_limit=
             continue
         #revision_col = revision["number"].split('\.')
         mark = convert_revision_to_mark(revision["number"])
-        if move_to_next_revision:
-            os.system('si retargetsandbox --project="%s" --projectRevision=%s %s/%s' % (sys.argv[1], revision["number"], abs_sandbox_path, integrity_file))
-            os.system('si resync --yes --recurse --sandbox="%s/%s"' % (abs_sandbox_path, integrity_file)) # sandbox location is required in case of devpath
-        move_to_next_revision = 1
+        #Create a build sandbox of the revision
+        os.system('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (sys.argv[1], revision["number"], mark))
+        os.chdir('tmp%d' % mark) #the reason why a number is added to the end of this is because MKS doesn't always drop the full file structure when it should, so they all should have unique names
         if devpath:
             sys.stdout.buffer.write(bytes(('commit refs/heads/devpath/%s\n' % devpath), 'utf-8'))
         else:
@@ -259,6 +254,9 @@ def export_to_git(revisions,devpath=0,ancestor_devpath=0,last_mark=0,mark_limit=
         # Create a "lightweight tag" with "reset command" for this commit
         sys.stdout.buffer.write(bytes(('reset refs/tags/%s\n' % TmpStr), 'utf-8')) # MKS Checkpoint information as GIT tag
         sys.stdout.buffer.write(bytes(('from :%d\n' % mark), 'utf-8'))             # specify commit for this tag by "mark"
+        #Drop the sandbox
+        os.chdir("..") # return to GIT directory
+        os.system("si dropsandbox --yes -f --delete=all tmp%d/%s" % (mark, integrity_file))
         # Sum up exported revisions
         revisions_exported +=1
     # return the number of exported revisions
@@ -291,19 +289,13 @@ if( (len(sys.argv) > 3) and (sys.argv[3] != "") ):
 # check whether a maximum number of revisions to be processed has been defined?
 if( (len(sys.argv) > 4) and (sys.argv[4] != "") and (int(sys.argv[4]) != 0) ):
     git_mark_limit = int(sys.argv[4])
-#Create a build sandbox of the first revision
-os.system('si createsandbox --populate --recurse --project="%s" --projectRevision=%s tmp' % (sys.argv[1], revisions[0]["number"]))
-os.chdir('tmp')
+# Export to GIT
 mks_revisions_exported += export_to_git(revisions,0,0,git_last_mark,git_mark_limit) #export master branch first!!
 for devpath in devpaths:
     devpath_revisions = retrieve_revisions(devpath[0])
     if(len(devpath_revisions) == 0): # Check number of revision entries for devpath (by "no entries" an invalid devpath is indicated).
         continue                     # Skip invalid devpath!
     mks_revisions_exported += export_to_git(devpath_revisions,devpath[0].replace(' ','_'),devpath[1],git_last_mark,git_mark_limit) #branch names can not have spaces in git so replace with underscores
-#Drop the sandbox
-integrity_file = os.path.basename(sys.argv[1])
-os.chdir("..") #leave 'tmp' and return to GIT directory
-os.system("si dropsandbox --yes -f --delete=all tmp/%s" % (integrity_file))
 # Calculation of remaining MKS revisions (after running this script) as a reminder for a later run of this script
 mks_revisions_left = (get_number_of_mks_revisions(devpaths) - mks_revisions_exported - git_last_mark)
 # Write remaining MKS revisions to a file in .git directory (overwrite file 'w' if it exists)
