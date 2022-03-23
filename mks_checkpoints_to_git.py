@@ -158,7 +158,6 @@ def retrieve_devpaths(mks_project=0):
 def export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit):
     # I noticed that the MKS client crashes when too many revisions are exported at once!
     # This mechanism is intended to divide the export to git into several steps...
-    ancestor_devpath_mark = 0    # mark of the ancestor revision of a devpath
     ancestor_mark = 0            # mark of the ancestor revision we will use to continue 
     # Check "arguments" for abort condition (mark_limit) to prevent MKS / Java crash
     # and "last_mark" to continue with an import after a previous abort due to limit.
@@ -186,18 +185,14 @@ def export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit):
     if not skip_this_revision:
         # Check if there is an ancestor revision for a devpath?
         if ancestor_devpath:
-            ancestor_devpath_mark = convert_revision_to_mark(ancestor_devpath)
-            # If there is no ancestor mark for continuation of MKS export and git import defined
-            if not ancestor_mark:
-                ancestor_mark = ancestor_devpath_mark
-            # We may want to continue based on a revision that is the ancestor for a devpath
-            # and also our "last_mark" from a previous import.
-            # In this case our "ancestor_mark" and the "ancestor_devpath_mark" must be identical,
-            # because there can be only one "mark" for the "from" statement of git fast-import...
-            elif( ancestor_devpath_mark != ancestor_mark ):
-                os.system("echo Error: Invalid revision or mark for continuation detected!")
-                exit(code = 666)
-    # Return values ("ancestor_mark" replaces "ancestor_devpath_mark" from now on)
+            # If yes we overwrite an existing "ancestor_mark" because the "ancestor_devpath" has
+            # priority (it's the starting revision of the "devpath" we are processing at the moment)
+            # and has to be used as "ancestor_mark" now!
+            # Hint: An existing "ancestor_mark" (we possibly overwrite here) is only the "last_mark"
+            # of a previous script run and does NOT necessarily have a successor revision! So it's
+            # OK to overwrite it with the ancestor revision of a devpath we need now!
+            ancestor_mark = convert_revision_to_mark(ancestor_devpath)
+    # Return values ("ancestor_mark" replaces "ancestor_devpath" from now on)
     return skip_this_revision, ancestor_mark
 
 def export_to_git(mks_project=0,revisions=0,devpath=0,ancestor_devpath=0,last_mark=0,mark_limit=0):
