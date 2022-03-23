@@ -106,11 +106,11 @@ def get_last_mark_from_file(filename):
         # converted to an "int" we get the "mark" (number) inside this entry
     return last_file_mark
 
-def retrieve_revisions(devpath=0):
+def retrieve_revisions(mks_project=0,devpath=0):
     if devpath:
-        pipe = Popen('si viewprojecthistory --rfilter=devpath:"%s" --project="%s"' % (devpath, sys.argv[1]), shell=True, bufsize=1024, stdout=PIPE)
+        pipe = Popen('si viewprojecthistory --rfilter=devpath:"%s" --project="%s"' % (devpath, mks_project), shell=True, bufsize=1024, stdout=PIPE)
     else:
-        pipe = Popen('si viewprojecthistory --rfilter=devpath::current --project="%s"' % sys.argv[1], shell=True, bufsize=1024, stdout=PIPE)
+        pipe = Popen('si viewprojecthistory --rfilter=devpath::current --project="%s"' % mks_project, shell=True, bufsize=1024, stdout=PIPE)
     versions = pipe.stdout.read().decode('cp850').split('\n') # decode('cp850') necessary because of german umlauts in MKS history
     versions = versions[1:]
     version_re = re.compile('[0-9]([\.0-9])+')
@@ -145,8 +145,8 @@ def retrieve_revisions(devpath=0):
     re.purge()
     return revisions
 
-def retrieve_devpaths():
-    pipe = Popen('si projectinfo --devpaths --noacl --noattributes --noshowCheckpointDescription --noassociatedIssues --project="%s"' % sys.argv[1], shell=True, bufsize=1024, stdout=PIPE)
+def retrieve_devpaths(mks_project=0):
+    pipe = Popen('si projectinfo --devpaths --noacl --noattributes --noshowCheckpointDescription --noassociatedIssues --project="%s"' % mks_project, shell=True, bufsize=1024, stdout=PIPE)
     devpaths = (pipe.stdout.read()).decode('utf-8')
     devpaths = devpaths [1:]
     devpaths_re = re.compile('    (.+) \(([0-9][\.0-9]+)\)\n')
@@ -195,14 +195,15 @@ def export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit):
             # In this case our "ancestor_mark" and the "ancestor_devpath_mark" must be identical,
             # because there can be only one "mark" for the "from" statement of git fast-import...
             elif( ancestor_devpath_mark != ancestor_mark ):
-                assert "Invalid revision or mark for continuation detected!"
+                os.system("echo Error: Invalid revision or mark for continuation detected!")
+                exit(code = 666)
     # Return values ("ancestor_mark" replaces "ancestor_devpath_mark" from now on)
     return skip_this_revision, ancestor_mark
 
-def export_to_git(revisions,devpath=0,ancestor_devpath=0,last_mark=0,mark_limit=0):
+def export_to_git(mks_project=0,revisions=0,devpath=0,ancestor_devpath=0,last_mark=0,mark_limit=0):
     revisions_exported = 0
     abs_sandbox_path = os.getcwd()
-    integrity_file = os.path.basename(sys.argv[1])
+    integrity_file = os.path.basename(mks_project)
     for revision in revisions:
         # Check abort conditions for exporting the current revision
         skip_this_revision, ancestor_mark = export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit)
@@ -212,7 +213,7 @@ def export_to_git(revisions,devpath=0,ancestor_devpath=0,last_mark=0,mark_limit=
         #revision_col = revision["number"].split('\.')
         mark = convert_revision_to_mark(revision["number"])
         #Create a build sandbox of the revision
-        os.system('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (sys.argv[1], revision["number"], mark))
+        os.system('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (mks_project, revision["number"], mark))
         os.chdir('tmp%d' % mark) #the reason why a number is added to the end of this is because MKS doesn't always drop the full file structure when it should, so they all should have unique names
         if devpath:
             sys.stdout.buffer.write(bytes(('commit refs/heads/devpath/%s\n' % devpath), 'utf-8'))
@@ -262,22 +263,37 @@ def export_to_git(revisions,devpath=0,ancestor_devpath=0,last_mark=0,mark_limit=
     # return the number of exported revisions
     return revisions_exported
 
-def get_number_of_mks_revisions(devpaths=0):
+def get_number_of_mks_revisions(mks_project=0,devpaths=0):
     mks_revisions_sum = 0
-    master_revisions = retrieve_revisions() # revisions for the master branch
+    master_revisions = retrieve_revisions(mks_project) # revisions for the master branch
     mks_revisions_sum += len(master_revisions)
     for devpath in devpaths:
-        devpath_revisions = retrieve_revisions(devpath[0])  # revisions for a specific development path
+        devpath_revisions = retrieve_revisions(mks_project,devpath[0])  # revisions for a specific development path
         mks_revisions_sum += len(devpath_revisions)
     return mks_revisions_sum    # sum of all revisions for the current MKS integrity project
 
+
+# ==================================================================
+# Arguments for this script:
+# 
+# sys.argv[0] = This script
+# sys.argv[1] = MKS project    (MKS server project location)
+# sys.argv[2] = GIT directory  (for MKS export & GIT import)
+# sys.argv[3] = GIT mark file  (marks list from previous run)
+# sys.argv[4] = GIT mark limit (marks to process per script run)
+#
+# ==================================================================
 marks = []
 git_last_mark = 0
 git_mark_limit = 0
 mks_revisions_exported = 0
-devpaths = retrieve_devpaths()
-revisions = retrieve_revisions()
-#Change directory to GIT directory (if argument is available)
+# Get MKS project location
+if (len(sys.argv) > 1):
+    mks_project = sys.argv[1]
+else:
+    os.system("echo Error: Missing MKS project location!")
+    exit(code = 666)
+# Change directory to GIT directory (if argument is available)
 if (len(sys.argv) > 2):
     os.chdir('%s' % (sys.argv[2]))
 # check for .git directory
@@ -289,17 +305,21 @@ if( (len(sys.argv) > 3) and (sys.argv[3] != "") ):
 # check whether a maximum number of revisions to be processed has been defined?
 if( (len(sys.argv) > 4) and (sys.argv[4] != "") and (int(sys.argv[4]) != 0) ):
     git_mark_limit = int(sys.argv[4])
+# Identify the development paths and revisions
+devpaths = retrieve_devpaths(mks_project)
+revisions = retrieve_revisions(mks_project)  # revisions for the master branch
 # Export to GIT
-mks_revisions_exported += export_to_git(revisions,0,0,git_last_mark,git_mark_limit) #export master branch first!!
+mks_revisions_exported += export_to_git(mks_project,revisions,0,0,git_last_mark,git_mark_limit) #export master branch first!!
 for devpath in devpaths:
-    devpath_revisions = retrieve_revisions(devpath[0])
+    devpath_revisions = retrieve_revisions(mks_project,devpath[0])  # revisions for a specific development path
     if(len(devpath_revisions) == 0): # Check number of revision entries for devpath (by "no entries" an invalid devpath is indicated).
         continue                     # Skip invalid devpath!
-    mks_revisions_exported += export_to_git(devpath_revisions,devpath[0].replace(' ','_'),devpath[1],git_last_mark,git_mark_limit) #branch names can not have spaces in git so replace with underscores
+    mks_revisions_exported += export_to_git(mks_project,devpath_revisions,devpath[0].replace(' ','_'),devpath[1],git_last_mark,git_mark_limit) #branch names can not have spaces in git so replace with underscores
 # Calculation of remaining MKS revisions (after running this script) as a reminder for a later run of this script
-mks_revisions_left = (get_number_of_mks_revisions(devpaths) - mks_revisions_exported - git_last_mark)
+mks_revisions_left = (get_number_of_mks_revisions(mks_project,devpaths) - mks_revisions_exported - git_last_mark)
 # Write remaining MKS revisions to a file in .git directory (overwrite file 'w' if it exists)
 os.chdir(".git")
 with open('revisions_left.txt', 'w') as f:
     f.write('%d' % mks_revisions_left)
 # This file can be read to decide if the script needs to be called again.
+exit(code = 0)  # Normal exit (no error)
