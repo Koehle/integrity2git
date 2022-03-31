@@ -178,11 +178,23 @@ def retrieve_revisions(mks_project=0,devpath=0):
     versions = pipe.stdout.read().decode('cp850').split('\n') # decode('cp850') necessary because of german umlauts in MKS history
     versions = versions[1:]
     version_re = re.compile('[0-9]([\.0-9])+')
+    letters_re = re.compile('[^0-9.]') # matches any non-digit [^0-9] or non-dot [^.] character
     revisions = []
     for version in versions:
-        match = version_re.match(version)
+        match = version_re.match(version) # check if version starts with a number
         if match:
             version_cols = version.split('\t')
+            # We have to check whether it is a valid version entry or "something else"!
+            # So far we know that this version starts with a number, but we need to check more:
+            # - we need at least 3 columns [0 = "number"] [1 = "author"] [2 = "seconds"]
+            # - the number in column [0] must have at least 3 characters (e.g. 1.1) and it must contain at least one dot "."
+            # - furthermore column [0] must only contain numbers (0-9) or dots ".". All other characters indicate an invalid version!
+            if( (len(version_cols) < 3) or (len(version_cols[0]) < 3) or (version_cols[0].find('.') == -1) or (letters_re.search(version_cols[0])) ):
+                # The current "version" starts with a number, but it is not a valid version entry!
+                # This string may belong to the previous revision description, so we add it there:
+                if(len(revisions)>=1):
+                    revisions[len(revisions)-1]["description"] += '\n' + version # Add string to previous revision description!
+                continue # with next version entry
             revision = {}
             revision["number"] = version_cols[0]
             if devpath: # check for invalid devpaths (they can be recognized by "revision numbers")
