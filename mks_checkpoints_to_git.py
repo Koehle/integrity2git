@@ -58,6 +58,23 @@ def remove_umlaut(string):
     string = string.decode('utf-8')
     return string
 
+# Some background information on the following function:
+# In our MKS integrity sandbox, there may be folders that contain only one *.pj file.
+# These are "empty" folders of (sub-)projects that do not have any other members yet.
+# Since we ignore the file type '.pj' in our comparison, such folders seem to be empty,
+# but "dcmp" does not ignore such folders, so we have to do that!
+# Check if a folder contains only a *.pj file (and nothing else):
+def is_pj_only_folder(path):
+    retval = False                                  # init return value
+    if os.path.isdir(path):                         # check if path is valid?
+        files = os.listdir(path)                    # list elements in folder
+        if (len(files) == 1):                       # only 1 element in folder?
+            fullpath = os.path.join(path, files[0]) # fullpath of folder or file
+            if os.path.isfile(fullpath):            # check if element is a file?
+                if fullpath.endswith('.pj'):        # check if it is a *.pj file?
+                    retval = True
+    return retval
+
 # calculate differences (errors) of a directory comparison
 def calc_diff_files(dcmp):
     global dir_compare_errors
@@ -66,9 +83,13 @@ def calc_diff_files(dcmp):
     for name in dcmp.left_only:   # Missing files B
         if (name.endswith(tuple(IgnoreFileTypes))):
             continue
+        if (is_pj_only_folder(os.path.join(dcmp.left, name))):
+            continue
         dir_compare_errors += 1
     for name in dcmp.right_only:  # Missing files A
         if (name.endswith(tuple(IgnoreFileTypes))):
+            continue
+        if (is_pj_only_folder(os.path.join(dcmp.right, name))):
             continue
         dir_compare_errors += 1
     # search recursively in subdirectories
@@ -161,7 +182,7 @@ def get_git_commit_by_mark(mark):
 def get_integer_value_from_file(git_sandbox_path,filename):
     # The file contains only one integer value!
     intVal = 0
-    file = git_sandbox_path+"\\.git\\"+filename
+    file = os.path.join(git_sandbox_path, ".git", filename)
     # Check if this file exists
     if(os.path.isfile(file)):
         with open(file) as f:
@@ -500,7 +521,7 @@ mks_revisions_all = get_number_of_mks_revisions(mks_project,devpaths)
 mks_revisions_to_compare = (mks_revisions_all - mks_revisions_compared)
 mks_revisions_to_export  = (mks_revisions_all - mks_revisions_exported - git_last_mark)
 # Write remaining MKS revisions to a file in .git directory (overwrite file 'w' if it exists)
-os.chdir(git_sandbox_path+"\\.git")
+os.chdir(os.path.join(git_sandbox_path, ".git"))
 # Compared MKS revisions and git marks (compare mode)
 with open(git_marks_cmpd_file, 'w') as f:
     f.write('%d' % mks_revisions_compared)
