@@ -29,9 +29,9 @@ git_marks_left_file = 'marks_left.txt'     # File contains number of remaining m
 mks_revis_left_file = 'revisions_left.txt' # File contains number of remaining revisions (to export)
 git_marks_cmpd_at_start = 0                # Number of compared git marks at script start (taken from file)
 
-# Global settings and variables for directory comparison
+# Global settings and variables for directory comparison and MKS export
 IgnoreDirList=filecmp.DEFAULT_IGNORES      # use default directories to ignore from filecmp
-IgnoreFileTypes = ['.pj']                  # ignore MKS project files *.pj only
+IgnoreFileTypes = ['.pj', '.gitattributes', '.gitignore']  # ignore these file types!
 dir_compare_errors = 0                     # error (results) of directory compare
 
 # Source for the following code snippet / python script:
@@ -77,7 +77,7 @@ def is_pj_only_folder(path):
 
 # calculate differences (errors) of a directory comparison
 def calc_diff_files(dcmp):
-    global dir_compare_errors
+    global IgnoreFileTypes, dir_compare_errors
     for name in dcmp.diff_files:  # Different files
         dir_compare_errors += 1
     for name in dcmp.left_only:   # Missing files B
@@ -294,6 +294,7 @@ def export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit):
 
 # Export of MKS revisions as GIT commits
 def export_to_git(mks_project,revisions=0,devpath=0,ancestor_devpath=0,last_mark=0,mark_limit=0):
+    global IgnoreFileTypes
     revisions_exported = 0
     abs_sandbox_path = os.getcwd()
     integrity_file = os.path.basename(mks_project)
@@ -305,7 +306,7 @@ def export_to_git(mks_project,revisions=0,devpath=0,ancestor_devpath=0,last_mark
             continue
         #revision_col = revision["number"].split('\.')
         mark = convert_revision_to_mark(revision["number"])
-        #Create a build sandbox of the revision
+        # Create a build sandbox of the revision
         os.system('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (mks_project, revision["number"], mark))
         os.chdir('tmp%d' % mark) #the reason why a number is added to the end of this is because MKS doesn't always drop the full file structure when it should, so they all should have unique names
         if devpath:
@@ -327,17 +328,19 @@ def export_to_git(mks_project,revisions=0,devpath=0,ancestor_devpath=0,last_mark
         sys.stdout.buffer.write(b'deleteall\n')
         tree = os.walk('.')
         for dir in tree:
+            # Skip '.git' and all subdirectories
+            if (dir[0].find('.git') != -1):
+                continue
             for filename in dir[2]:
                 if (dir[0] == '.'):
                     fullfile = filename
                 else:
                     fullfile = os.path.join(dir[0], filename)[2:]
                 # The *.pj files are used by MKS and should be skipped
-                if (fullfile.endswith('.pj')):
+                if (fullfile.endswith(tuple(IgnoreFileTypes))):
                     continue
-                if (fullfile[0:4] == ".git"):
-                    continue
-                if (fullfile.find('mks_checkpoints_to_git') != -1):
+                # Skip this python script during export
+                if (fullfile.find(os.path.basename(__file__)) != -1):
                     continue
                 inline_data(fullfile)
         # Check the contents of the revision label (may have been changed previously)
@@ -348,7 +351,7 @@ def export_to_git(mks_project,revisions=0,devpath=0,ancestor_devpath=0,last_mark
         # Create a "lightweight tag" with "reset command" for this commit
         sys.stdout.buffer.write(bytes(('reset refs/tags/%s\n' % TmpStr), 'utf-8')) # MKS Checkpoint information as GIT tag
         sys.stdout.buffer.write(bytes(('from :%d\n' % mark), 'utf-8'))             # specify commit for this tag by "mark"
-        #Drop the sandbox
+        # Drop the sandbox
         os.chdir("..") # return to GIT directory
         os.system("si dropsandbox --yes -f --delete=all tmp%d/%s" % (mark, integrity_file))
         # Sum up exported revisions
@@ -359,7 +362,7 @@ def export_to_git(mks_project,revisions=0,devpath=0,ancestor_devpath=0,last_mark
 # Comparison of MKS revisions with the resulting GIT commits (after export)
 def compare_git_mks(mks_project,revisions=0,mks_compare_sandbox_path=0,git_sandbox_path=0,git_mark_limit=0):
     global git_marks_cmpd_at_start
-    global dir_compare_errors
+    global IgnoreDirList, dir_compare_errors
     revisions_compared = 0
     integrity_file = os.path.basename(mks_project)
     for revision in revisions:
@@ -368,7 +371,7 @@ def compare_git_mks(mks_project,revisions=0,mks_compare_sandbox_path=0,git_sandb
         # Check abort conditions for comparing the current revision
         if( (mark <= git_marks_cmpd_at_start) or (mark > (git_marks_cmpd_at_start + git_mark_limit)) ):
             continue    # Skip this revision
-        #Create a build sandbox of the revision
+        # Create a build sandbox of the revision
         os.chdir(mks_compare_sandbox_path)
         os.system('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (mks_project, revision["number"], mark))
         os.chdir('tmp%d' % mark) #the reason why a number is added to the end of this is because MKS doesn't always drop the full file structure when it should, so they all should have unique names
@@ -384,7 +387,7 @@ def compare_git_mks(mks_project,revisions=0,mks_compare_sandbox_path=0,git_sandb
         if(dir_compare_errors != 0):
             os.system("echo Error: Comparison of MKS revision and GIT commit failed for mark %d!" % mark)
             exit(code = 666)
-        #Drop the MKS sandbox
+        # Drop the MKS sandbox
         os.chdir(mks_compare_sandbox_path)
         os.system("si dropsandbox --yes -f --delete=all tmp%d/%s" % (mark, integrity_file))
         # Sum up compared revisions
