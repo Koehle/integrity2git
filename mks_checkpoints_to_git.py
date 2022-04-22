@@ -23,6 +23,7 @@ if platform.system() == 'Windows':
 # for git fast-import only LF (line feed) is accepted!
 
 # Global file definitions
+mks_devpath_file    = 'missing_dvpth.txt'  # File contains missing devpath information for the MKS project
 git_marks_file      = ''                   # File contains git marks and commits (exported) - set as argument incl. path
 git_marks_cmpd_file = 'marks_cpd.txt'      # File contains number of compared marks (finished)
 git_marks_left_file = 'marks_left.txt'     # File contains number of remaining marks (to compare)
@@ -191,13 +192,48 @@ def get_integer_value_from_file(git_sandbox_path,filename):
                 intVal = int(line)
     return intVal
 
-def retrieve_revisions(mks_project=0,devpath=0):
+# Get missing devpaths list from file
+def get_missing_devpaths_from_file(git_sandbox_path,filename):
+    # The file contains a list of missing devpaths!
+    file_list = []
+    missing_devpaths_list = []
+    file = os.path.join(git_sandbox_path, ".git", filename)
+    # Check if this file exists
+    if(os.path.isfile(file)):
+        with open(file) as f:
+            file_list = f.read().split('\n')
+        # Create a new devpath list in the format we use in this script!
+        for entry in file_list:
+            if(entry == ''):
+                continue
+            # Each entry consists of three columns separated by ';'
+            devpath_entry = {}
+            columns = entry.split(';')
+            devpath_entry['devpath_name']     = columns[0]
+            devpath_entry['devpath_start']    = columns[1]
+            devpath_entry['devpath_versions'] = columns[2].replace('\\t', '\t')
+            missing_devpaths_list.append(devpath_entry)
+    # Return list of missing devpaths for the current MKS project
+    return missing_devpaths_list
+
+def retrieve_revisions(mks_project='',devpath='',missing_devpaths=[]):
     if devpath:
         pipe = Popen('si viewprojecthistory --rfilter=devpath:"%s" --project="%s"' % (devpath, mks_project), shell=True, bufsize=1024, stdout=PIPE)
     else:
         pipe = Popen('si viewprojecthistory --rfilter=devpath::current --project="%s"' % mks_project, shell=True, bufsize=1024, stdout=PIPE)
     versions = pipe.stdout.read().decode('cp850').split('\n') # decode('cp850') necessary because of german umlauts in MKS history
     versions = versions[1:]
+    # Check for missing devpath information we added manually:
+    if(len(missing_devpaths) > 0):
+        # Does the current devpath belong to our list and is unknown on the MKS server?
+        if( devpath.lower().startswith('missing_devpath_') and (versions[0] == '') ):
+            # Search the list for the current development path:
+            for missing_devpath in missing_devpaths:
+                if(devpath != missing_devpath['devpath_name']):
+                    continue
+                # Take over the "versions" for this development path:
+                versions = missing_devpath['devpath_versions'].split('\n')
+    # Prepare checks with regular expressions
     version_re = re.compile('[0-9]([\.0-9])+')
     letters_re = re.compile('[^0-9.]') # matches any non-digit [^0-9] or non-dot [^.] character
     revisions = []
@@ -242,12 +278,17 @@ def retrieve_revisions(mks_project=0,devpath=0):
     re.purge()
     return revisions
 
-def retrieve_devpaths(mks_project=0):
+def retrieve_devpaths(mks_project=0, missing_devpaths=[]):
     pipe = Popen('si projectinfo --devpaths --noacl --noattributes --noshowCheckpointDescription --noassociatedIssues --project="%s"' % mks_project, shell=True, bufsize=1024, stdout=PIPE)
     devpaths = (pipe.stdout.read()).decode('utf-8')
     devpaths = devpaths [1:]
     devpaths_re = re.compile('    (.+) \(([0-9][\.0-9]+)\)\n')
     devpath_col = devpaths_re.findall(devpaths)
+    # Check for missing devpaths (manually added)
+    if(len(missing_devpaths) > 0):
+        for missing_devpath in missing_devpaths:
+            # Add missing devpath name and start e.g. ('Missing_Devpath_1', '1.4')
+            devpath_col.append( (missing_devpath['devpath_name'],missing_devpath['devpath_start']) )
     re.purge()
     devpath_col_sort = sort_devpaths(devpath_col) #order development paths by version
     return devpath_col_sort
@@ -399,7 +440,7 @@ def get_number_of_mks_revisions(mks_project=0,devpaths=0):
     master_revisions = retrieve_revisions(mks_project) # revisions for the master branch
     mks_revisions_sum += len(master_revisions)
     for devpath in devpaths:
-        devpath_revisions = retrieve_revisions(mks_project,devpath[0])  # revisions for a specific development path
+        devpath_revisions = retrieve_revisions(mks_project,devpath[0],mks_missing_devpaths)  # revisions for a specific development path
         mks_revisions_sum += len(devpath_revisions)
     return mks_revisions_sum    # sum of all revisions for the current MKS integrity project
 
@@ -419,6 +460,7 @@ def get_number_of_mks_revisions(mks_project=0,devpaths=0):
 marks = []
 git_last_mark = 0
 git_mark_limit = 0
+mks_missing_devpaths = []
 mks_revisions_compared = 0
 mks_revisions_exported = 0
 mks_compare_sandbox_path = ""
@@ -486,9 +528,11 @@ else:
 
 # Get number of already compared marks as initial value from file (necessary to skip compared MKS revisions):
 mks_revisions_compared = git_marks_cmpd_at_start = get_integer_value_from_file(git_sandbox_path,git_marks_cmpd_file)
+# Fetch information about missing development paths from a file (if available):
+mks_missing_devpaths = get_missing_devpaths_from_file(git_sandbox_path,mks_devpath_file)
 
 # Identify the MKS development paths and revisions
-devpaths = retrieve_devpaths(mks_project)
+devpaths = retrieve_devpaths(mks_project,mks_missing_devpaths)
 revisions = retrieve_revisions(mks_project)  # revisions for the master branch
 
 # Check the operation mode of this script:
@@ -500,7 +544,7 @@ if(op_mode == "export"):
     # The script should first be executed in this mode.
     mks_revisions_exported += export_to_git(mks_project,revisions,0,0,git_last_mark,git_mark_limit) #export master branch first!!
     for devpath in devpaths:
-        devpath_revisions = retrieve_revisions(mks_project,devpath[0])  # revisions for a specific development path
+        devpath_revisions = retrieve_revisions(mks_project,devpath[0],mks_missing_devpaths)  # revisions for a specific development path
         if(len(devpath_revisions) == 0): # Check number of revision entries for devpath (by "no entries" an invalid devpath is indicated).
             continue                     # Skip invalid devpath!
         mks_revisions_exported += export_to_git(mks_project,devpath_revisions,devpath[0].replace(' ','_'),devpath[1],git_last_mark,git_mark_limit) #branch names can not have spaces in git so replace with underscores
@@ -513,7 +557,7 @@ elif(op_mode == "compare"):
     # The script can be run in this mode as a second step to check the export to GIT.
     mks_revisions_compared += compare_git_mks(mks_project,revisions,mks_compare_sandbox_path,git_sandbox_path,git_mark_limit) # compare master branch
     for devpath in devpaths:
-        devpath_revisions = retrieve_revisions(mks_project,devpath[0])  # revisions for a specific development path
+        devpath_revisions = retrieve_revisions(mks_project,devpath[0],mks_missing_devpaths)  # revisions for a specific development path
         if(len(devpath_revisions) == 0): # Check number of revision entries for devpath (by "no entries" an invalid devpath is indicated).
             continue                     # Skip invalid devpath!
         mks_revisions_compared += compare_git_mks(mks_project,devpath_revisions,mks_compare_sandbox_path,git_sandbox_path,git_mark_limit) # compare devpath branch
