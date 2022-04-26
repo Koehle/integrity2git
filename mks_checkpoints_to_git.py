@@ -74,6 +74,8 @@ def is_pj_only_folder(path):
             if os.path.isfile(fullpath):            # check if element is a file?
                 if fullpath.endswith('.pj'):        # check if it is a *.pj file?
                     retval = True
+        elif (len(files) == 0):                     # is folder completely empty?
+            retval = True                           # ignore empty folders too!
     return retval
 
 # calculate differences (errors) of a directory comparison
