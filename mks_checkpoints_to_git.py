@@ -151,6 +151,8 @@ def get_last_mark_from_python():
     return len(marks)
 
 def get_last_mark_from_file(filename):
+    # init return value
+    last_file_mark = int(0)
     # read "marks file" (with all existing "mark entries")
     marks_file_list = open(filename, 'r').read().split('\n')
     # get last mark of a previous import to git from this file
@@ -283,7 +285,7 @@ def retrieve_revisions(mks_project='',devpath='',missing_devpaths=[]):
 
 def retrieve_devpaths(mks_project=0, missing_devpaths=[]):
     pipe = Popen('si projectinfo --devpaths --noacl --noattributes --noshowCheckpointDescription --noassociatedIssues --project="%s"' % mks_project, shell=True, bufsize=1024, stdout=PIPE)
-    devpaths = (pipe.stdout.read()).decode('utf-8')
+    devpaths = (pipe.stdout.read()).decode('cp850') # decode('cp850') necessary because of german umlauts
     devpaths = devpaths [1:]
     devpaths_re = re.compile('    (.+) \(([0-9][\.0-9]+)\)\n')
     devpath_col = devpaths_re.findall(devpaths)
