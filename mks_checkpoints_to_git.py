@@ -359,8 +359,8 @@ def export_to_git(mks_project,revisions=0,devpath=0,ancestor_devpath=0,last_mark
         # https://www.git-scm.com/docs/git-fast-import
         sys.stdout.buffer.write(bytes(('committer %s <> %d +0100\n' % (revision["author"], revision["seconds"])), 'utf-8')) #Germany UTC time zone
         # The optional encoding command indicates the encoding of the commit message.
-        sys.stdout.buffer.write(bytes(('encoding iso-8859-15\n'), 'utf-8')) #encoding for the following description ('iso-8859-15')
-        sys.stdout.buffer.write(bytes(('data %d\n%s\n' % (len(revision["description"]), revision["description"])), 'iso-8859-15'))
+        sys.stdout.buffer.write(bytes(('encoding iso-8859-1\n'), 'utf-8')) #encoding for the following description ('iso-8859-1')
+        sys.stdout.buffer.write(bytes(('data %d\n%s\n' % (len(revision["description"]), revision["description"])), 'iso-8859-1'))
         if ancestor_mark:
             # There are 2 cases where this code is relevant:
             # 1) we're starting a development path so we need to start from it was originally branched from
@@ -389,6 +389,8 @@ def export_to_git(mks_project,revisions=0,devpath=0,ancestor_devpath=0,last_mark
             TmpStr = "%s__%s" % (revision["number"], revision["label"])
         else: # Use MKS Revision number as tag only!
             TmpStr = revision["number"]
+        # Check if the new tag is valid (it must not contain spaces)
+        TmpStr = TmpStr.replace(' ', '_') # Replace spaces ' ' with underscore '_'
         # Create a "lightweight tag" with "reset command" for this commit
         sys.stdout.buffer.write(bytes(('reset refs/tags/%s\n' % TmpStr), 'utf-8')) # MKS Checkpoint information as GIT tag
         sys.stdout.buffer.write(bytes(('from :%d\n' % mark), 'utf-8'))             # specify commit for this tag by "mark"
