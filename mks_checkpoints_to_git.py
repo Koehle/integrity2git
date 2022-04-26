@@ -138,7 +138,7 @@ def inline_data(filename, code = 'M', mode = '644'):
     if platform.system() == 'Windows':
         #this is a hack'ish way to get windows path names to work git (is there a better way to do this?)
         filename = filename.replace('\\','/')
-    sys.stdout.buffer.write(bytes("%s %s inline %s\n" % (code, mode, filename), 'utf-8'))
+    sys.stdout.buffer.write(bytes('%s %s inline %s\n' % (code, mode, filename), 'utf-8'))
     sys.stdout.buffer.write(bytes('data %d\n' % (os.path.getsize(filename)), 'utf-8'))
     sys.stdout.buffer.write(content) # binary output!
 
@@ -180,7 +180,7 @@ def get_git_commit_by_mark(mark):
             break
     # check if git commit is valid
     if(git_commit == ""):
-        os.system("echo Error: The GIT commit requested as mark was not found in the marks file!")
+        os.system('echo Error: The GIT commit requested as mark was not found in the marks file!')
         exit(code = 666)
     return git_commit
 
@@ -188,7 +188,7 @@ def get_git_commit_by_mark(mark):
 def get_integer_value_from_file(git_sandbox_path,filename):
     # The file contains only one integer value!
     intVal = 0
-    file = os.path.join(git_sandbox_path, ".git", filename)
+    file = os.path.join(git_sandbox_path, '.git', filename)
     # Check if this file exists
     if(os.path.isfile(file)):
         with open(file) as f:
@@ -202,7 +202,7 @@ def get_missing_devpaths_from_file(git_sandbox_path,filename):
     # The file contains a list of missing devpaths!
     file_list = []
     missing_devpaths_list = []
-    file = os.path.join(git_sandbox_path, ".git", filename)
+    file = os.path.join(git_sandbox_path, '.git', filename)
     # Check if this file exists
     if(os.path.isfile(file)):
         with open(file) as f:
@@ -400,8 +400,8 @@ def export_to_git(mks_project,revisions=0,devpath=0,ancestor_devpath=0,last_mark
         sys.stdout.buffer.write(bytes(('reset refs/tags/%s\n' % TmpStr), 'utf-8')) # MKS Checkpoint information as GIT tag
         sys.stdout.buffer.write(bytes(('from :%d\n' % mark), 'utf-8'))             # specify commit for this tag by "mark"
         # Drop the sandbox
-        os.chdir("..") # return to GIT directory
-        os.system("si dropsandbox --yes -f --delete=all tmp%d/%s" % (mark, integrity_file))
+        os.chdir('..') # return to GIT directory
+        os.system('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
         # Sum up exported revisions
         revisions_exported +=1
     # return the number of exported revisions
@@ -427,17 +427,17 @@ def compare_git_mks(mks_project,revisions=0,mks_compare_sandbox_path=0,git_sandb
         # Checkout GIT commit that belongs to this mark (and MKS revision) in detached head state
         git_commit = get_git_commit_by_mark(mark)
         os.chdir(git_sandbox_path)
-        os.system("git checkout --detach --recurse-submodules %s" % git_commit)
+        os.system('git checkout --detach --recurse-submodules %s' % git_commit)
         # Compare directories (left: MKS revision vs. right: GIT commit)
         dcmp = dircmp(tmp_mks_compare_sandbox_path, git_sandbox_path, ignore=IgnoreDirList)
         dir_compare_errors = 0  # Initialize global variable before checking the results
         calc_diff_files(dcmp)   # Evaluate results of directory comparison
         if(dir_compare_errors != 0):
-            os.system("echo Error: Comparison of MKS revision and GIT commit failed for mark %d!" % mark)
+            os.system('echo Error: Comparison of MKS revision and GIT commit failed for mark %d!' % mark)
             exit(code = 666)
         # Drop the MKS sandbox
         os.chdir(mks_compare_sandbox_path)
-        os.system("si dropsandbox --yes -f --delete=all tmp%d/%s" % (mark, integrity_file))
+        os.system('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
         # Sum up compared revisions
         revisions_compared +=1
     return revisions_compared
@@ -477,20 +477,20 @@ if (len(sys.argv) > 1):
     op_mode = sys.argv[1]
     # Check given operation mode:
     if not( (op_mode == "compare") or (op_mode == "export") ):
-        os.system("echo Error: Invalid operation mode!")
+        os.system('echo Error: Invalid operation mode!')
         exit(code = 601)
 else:
-    os.system("echo Error: Missing operation mode!")
+    os.system('echo Error: Missing operation mode!')
     exit(code = 602)
 # ARGUMENT [2]:
 # Get MKS project location
 if (len(sys.argv) > 2):
     mks_project = sys.argv[2]
     #if not(os.path.exists(mks_project)):
-    #    print("Error: Invalid MKS Integrity project!")
+    #    os.system('echo Error: Invalid MKS Integrity project!')
     #    exit(code = 603)
 else:
-    os.system("echo Error: Missing MKS project location!")
+    os.system('echo Error: Missing MKS project location!')
     exit(code = 604)
 # ARGUMENT [3]:
 # Change directory to GIT directory (if argument is available)
@@ -498,11 +498,11 @@ if (len(sys.argv) > 3):
     if (os.path.exists(sys.argv[3])):
         git_sandbox_path = sys.argv[3]
         os.chdir('%s' % (git_sandbox_path))
-        if not(os.path.isdir(".git")):
-            print("Error: Missing git directory!")
+        if not(os.path.isdir('.git')):
+            os.system('echo Error: Missing git directory!')
             exit(code = 605)
     else:
-        print("Error: Invalid path to git directory!")
+        os.system('echo Error: Invalid path to git directory!')
         exit(code = 606)
 # ARGUMENT [4]:
 # check if we should read a file with git marks from a previous git fast-import?
@@ -513,7 +513,7 @@ if( (len(sys.argv) > 4) and (sys.argv[4] != "") ):
     else:
         # For compare mode this file is mandatory!
         if(op_mode == "compare"):
-            print("Error: Missing git marks file!")
+            os.system('echo Error: Missing git marks file!')
             exit(code = 607)
 # ARGUMENT [5]:
 # check whether a maximum number of revisions to be processed has been defined?
@@ -524,12 +524,12 @@ if( (len(sys.argv) > 5) and (sys.argv[5] != "") and (int(sys.argv[5]) != 0) ):
 if( (len(sys.argv) > 6) and (sys.argv[6] != "") ):
     mks_compare_sandbox_path = sys.argv[6]
     if not(os.path.exists(mks_compare_sandbox_path)):
-        print("Error: Location for MKS compare sandbox does not exist!")
+        os.system('echo Error: Location for MKS compare sandbox does not exist!')
         exit(code = 608)
 else:
     # For compare mode this argument is mandatory!
     if(op_mode == "compare"):
-        print("Error: Missing MKS sandbox location!")
+        os.system('echo Error: Missing MKS sandbox location!')
         exit(code = 609)
     # In export mode, the MKS and GIT sandbox locations are identical!
 
@@ -575,7 +575,7 @@ mks_revisions_all = get_number_of_mks_revisions(mks_project,devpaths)
 mks_revisions_to_compare = (mks_revisions_all - mks_revisions_compared)
 mks_revisions_to_export  = (mks_revisions_all - mks_revisions_exported - git_last_mark)
 # Write remaining MKS revisions to a file in .git directory (overwrite file 'w' if it exists)
-os.chdir(os.path.join(git_sandbox_path, ".git"))
+os.chdir(os.path.join(git_sandbox_path, '.git'))
 # Compared MKS revisions and git marks (compare mode)
 with open(git_marks_cmpd_file, 'w') as f:
     f.write('%d' % mks_revisions_compared)
