@@ -83,17 +83,18 @@ def calc_diff_files(dcmp):
     global IgnoreFileTypes, dir_compare_errors
     for name in dcmp.diff_files:  # Different files
         dir_compare_errors += 1
-    for name in dcmp.left_only:   # Missing files B
+    for name in dcmp.left_only:   # MKS only (missing files in GIT)
         if (name.endswith(tuple(IgnoreFileTypes))):
             continue
+        # on the MKS side, empty or pj-only folders are allowed!
         if (is_pj_only_folder(os.path.join(dcmp.left, name))):
             continue
         dir_compare_errors += 1
-    for name in dcmp.right_only:  # Missing files A
+    for name in dcmp.right_only:  # GIT only (missing files in MKS)
         if (name.endswith(tuple(IgnoreFileTypes))):
             continue
-        if (is_pj_only_folder(os.path.join(dcmp.right, name))):
-            continue
+        # on the GIT side, there will be no empty folders,
+        # because GIT does not manage empty folders!
         dir_compare_errors += 1
     # search recursively in subdirectories
     for sub_dcmp in dcmp.subdirs.values():
@@ -425,7 +426,7 @@ def compare_git_mks(mks_project,revisions=0,mks_compare_sandbox_path=0,git_sandb
         git_commit = get_git_commit_by_mark(mark)
         os.chdir(git_sandbox_path)
         os.system("git checkout --detach --recurse-submodules %s" % git_commit)
-        # Compare directories (MKS revision and GIT commit)
+        # Compare directories (left: MKS revision vs. right: GIT commit)
         dcmp = dircmp(tmp_mks_compare_sandbox_path, git_sandbox_path, ignore=IgnoreDirList)
         dir_compare_errors = 0  # Initialize global variable before checking the results
         calc_diff_files(dcmp)   # Evaluate results of directory comparison
