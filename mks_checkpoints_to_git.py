@@ -2,6 +2,7 @@
 #
 
 import os
+import subprocess
 from subprocess import Popen
 from subprocess import PIPE
 import time
@@ -34,6 +35,9 @@ git_marks_cmpd_at_start = 0                # Number of compared git marks at scr
 IgnoreDirList=filecmp.DEFAULT_IGNORES      # use default directories to ignore from filecmp
 IgnoreFileTypes = ['.pj', '.gitattributes', '.gitignore']  # ignore these file types!
 dir_compare_errors = 0                     # error (results) of directory compare
+
+# External compare tool "Meld" which can be used in case of comparison errors
+MELD_COMPARE_WINDOWS = 'C:\\Program Files (x86)\\Meld\\Meld.exe'
 
 # Source for the following code snippet / python script:
 # https://gist.github.com/johnberroa/cd49976220933a2c881e89b69699f2f7
@@ -434,6 +438,15 @@ def compare_git_mks(mks_project,revisions=0,mks_compare_sandbox_path=0,git_sandb
         calc_diff_files(dcmp)   # Evaluate results of directory comparison
         if(dir_compare_errors != 0):
             os.system('echo Error: Comparison of MKS revision and GIT commit failed for mark %d!' % mark)
+            os.system('echo MKS Sandbox: "%s"' % tmp_mks_compare_sandbox_path)
+            os.system('echo GIT Sandbox: "%s"' % git_sandbox_path)
+            # Check if program "Meld" is available:
+            if(os.path.isfile(MELD_COMPARE_WINDOWS)):
+                os.system('echo Calling the program "Meld" to visually compare the sandboxes...')
+                # Create command string for calling the "Meld" program with MKS and GIT sandbox path
+                cmd_str = '"' + MELD_COMPARE_WINDOWS + '" "' + tmp_mks_compare_sandbox_path + '" "' + git_sandbox_path + '"'
+                # Call the "Meld" program to display the differences
+                subprocess.call(cmd_str, shell=True)
             exit(code = 666)
         # Drop the MKS sandbox
         os.chdir(mks_compare_sandbox_path)
