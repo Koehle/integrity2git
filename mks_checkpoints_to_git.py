@@ -35,6 +35,7 @@ git_marks_cmpd_at_start = 0                # Number of compared git marks at scr
 IgnoreDirList=filecmp.DEFAULT_IGNORES      # use default directories to ignore from filecmp
 IgnoreFileTypes = ['.pj', '.gitattributes', '.gitignore']  # ignore these file types!
 dir_compare_errors = 0                     # error (results) of directory compare
+dir_comp_err_list  = []                    # error list, containing differences as strings
 
 # External compare tool "Meld" which can be used in case of comparison errors
 MELD_COMPARE_WINDOWS = 'C:\\Program Files (x86)\\Meld\\Meld.exe'
@@ -84,8 +85,9 @@ def is_pj_only_folder(path):
 
 # calculate differences (errors) of a directory comparison
 def calc_diff_files(dcmp):
-    global IgnoreFileTypes, dir_compare_errors
+    global IgnoreFileTypes, dir_compare_errors, dir_comp_err_list
     for name in dcmp.diff_files:  # Different files
+        dir_comp_err_list.append(name)
         dir_compare_errors += 1
     for name in dcmp.left_only:   # MKS only (missing files in GIT)
         if (name.endswith(tuple(IgnoreFileTypes))):
@@ -93,12 +95,14 @@ def calc_diff_files(dcmp):
         # on the MKS side, empty or pj-only folders are allowed!
         if (is_pj_only_folder(os.path.join(dcmp.left, name))):
             continue
+        dir_comp_err_list.append(name)
         dir_compare_errors += 1
     for name in dcmp.right_only:  # GIT only (missing files in MKS)
         if (name.endswith(tuple(IgnoreFileTypes))):
             continue
         # on the GIT side, there will be no empty folders,
         # because GIT does not manage empty folders!
+        dir_comp_err_list.append(name)
         dir_compare_errors += 1
     # search recursively in subdirectories
     for sub_dcmp in dcmp.subdirs.values():
@@ -414,7 +418,7 @@ def export_to_git(mks_project,revisions=0,devpath=0,ancestor_devpath=0,last_mark
 # Comparison of MKS revisions with the resulting GIT commits (after export)
 def compare_git_mks(mks_project,revisions=0,mks_compare_sandbox_path=0,git_sandbox_path=0,git_mark_limit=0):
     global git_marks_cmpd_at_start
-    global IgnoreDirList, dir_compare_errors
+    global IgnoreDirList, dir_compare_errors, dir_comp_err_list
     revisions_compared = 0
     integrity_file = os.path.basename(mks_project)
     for revision in revisions:
@@ -434,12 +438,17 @@ def compare_git_mks(mks_project,revisions=0,mks_compare_sandbox_path=0,git_sandb
         os.system('git checkout --detach --recurse-submodules %s' % git_commit)
         # Compare directories (left: MKS revision vs. right: GIT commit)
         dcmp = dircmp(tmp_mks_compare_sandbox_path, git_sandbox_path, ignore=IgnoreDirList)
+        dir_comp_err_list = []  # Initialize global error list before checking the results
         dir_compare_errors = 0  # Initialize global variable before checking the results
         calc_diff_files(dcmp)   # Evaluate results of directory comparison
         if(dir_compare_errors != 0):
             os.system('echo Error: Comparison of MKS revision and GIT commit failed for mark %d!' % mark)
             os.system('echo MKS Sandbox: "%s"' % tmp_mks_compare_sandbox_path)
             os.system('echo GIT Sandbox: "%s"' % git_sandbox_path)
+            # Output differences on the console to facilitate troubleshooting
+            os.system('echo List the differences found during the comparison:')
+            for entry in dir_comp_err_list:
+                os.system('echo "%s"' % entry)
             # Check if program "Meld" is available:
             if(os.path.isfile(MELD_COMPARE_WINDOWS)):
                 os.system('echo Calling the program "Meld" to visually compare the sandboxes...')
