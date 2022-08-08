@@ -30,6 +30,7 @@ git_marks_file      = ''                   # File contains git marks and commits
 git_marks_mksr_file = 'marks_2_rev.txt'    # File contains git marks and the MKS revision number (exported)
 git_marks_cmpd_file = 'marks_cpd.txt'      # File contains number of compared marks (finished)
 git_marks_left_file = 'marks_left.txt'     # File contains number of remaining marks (to compare)
+mks_revis_all_file  = 'revisions_all.txt'  # File contains number of all MKS revisions (to export)
 mks_revis_left_file = 'revisions_left.txt' # File contains number of remaining revisions (to export)
 
 # Global variables for git marks and MKS revisions
@@ -239,7 +240,7 @@ def get_mks_revision_by_mark(marks_to_rev_list,mark):
     # MKS revision not found, if value is ''
     return mks_revision
 
-# Create a MKS revision list from the marks to Revision list
+# Create a MKS revision list from the marks to revision list
 def get_mks_revisions_exported(marks_to_rev_list):
     mks_revisions_list = []
     for entry in marks_to_rev_list:
@@ -383,7 +384,7 @@ def retrieve_revisions(mks_project='',devpath='',missing_devpaths=[]):
     re.purge()
     return revisions
 
-def retrieve_devpaths(mks_project=0, missing_devpaths=[]):
+def retrieve_devpaths(mks_project='', missing_devpaths=[]):
     pipe = Popen('si projectinfo --devpaths --noacl --noattributes --noshowCheckpointDescription --noassociatedIssues --project="%s"' % mks_project, shell=True, bufsize=1024, stdout=PIPE)
     devpaths = (pipe.stdout.read()).decode('cp850') # decode('cp850') necessary because of german umlauts
     devpaths = devpaths [1:]
@@ -398,7 +399,7 @@ def retrieve_devpaths(mks_project=0, missing_devpaths=[]):
     devpath_col_sort = sort_devpaths(devpath_col) #order development paths by version
     return devpath_col_sort
 
-def export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit):
+def export_abort_continue(revision=[],ancestor_devpath='',last_mark=0,mark_limit=0):
     # I noticed that the MKS client crashes when too many revisions are exported at once!
     # This mechanism is intended to divide the export to git into several steps...
     ancestor_mark = 0            # mark of the ancestor revision we will use to continue 
@@ -439,15 +440,15 @@ def export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit):
     return skip_this_revision, ancestor_mark
 
 # Export of MKS revisions as GIT commits
-def export_to_git(mks_project,revisions=0,devpath=0,ancestor_devpath=0,last_mark=0,mark_limit=0):
+def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',last_mark=0,mark_limit=0):
     global IgnoreFileTypes, git_marks_mks_rev_list, mks_revisions_list
-    revisions_exported = 0
+    revisions_exported = int(0)
     abs_sandbox_path = os.getcwd()
     integrity_file = os.path.basename(mks_project)
     for revision in revisions:
         # Check abort conditions for exporting the current revision
         skip_this_revision, ancestor_mark = export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit)
-        ancestor_devpath = 0 # reset to zero ("ancestor_mark" is relevant now!)
+        ancestor_devpath = '' # reset ("ancestor_mark" is relevant now!)
         if skip_this_revision:
             continue
         # Check if the MKS revision to be exported already exists
@@ -518,10 +519,10 @@ def export_to_git(mks_project,revisions=0,devpath=0,ancestor_devpath=0,last_mark
     return revisions_exported
 
 # Comparison of MKS revisions with the resulting GIT commits (after export)
-def compare_git_mks(mks_project,revisions=0,mks_compare_sandbox_path=0,git_sandbox_path=0,git_mark_limit=0):
+def compare_git_mks(mks_project='',revisions=[],mks_compare_sandbox_path='',git_sandbox_path='',git_mark_limit=0):
     global git_marks_cmpd_at_start
     global IgnoreDirList, dir_compare_errors, dir_comp_err_list
-    revisions_compared = 0
+    revisions_compared = int(0)
     integrity_file = os.path.basename(mks_project)
     for revision in revisions:
         # Generate mark for current revision
@@ -566,8 +567,8 @@ def compare_git_mks(mks_project,revisions=0,mks_compare_sandbox_path=0,git_sandb
         revisions_compared +=1
     return revisions_compared
 
-def get_number_of_mks_revisions(mks_project=0,devpaths=0,devpaths_tb_ignored=[]):
-    mks_revisions_sum = 0
+def get_number_of_mks_revisions(mks_project='',devpaths=[],devpaths_tb_ignored=[]):
+    mks_revisions_sum = int(0)
     master_revisions = retrieve_revisions(mks_project) # revisions for the master branch
     mks_revisions_sum += len(master_revisions)
     for devpath in devpaths:
@@ -592,13 +593,13 @@ def get_number_of_mks_revisions(mks_project=0,devpaths=0,devpaths_tb_ignored=[])
 #
 # ==================================================================
 marks = []
-git_last_mark = 0
-git_mark_limit = 0
+git_last_mark = int(0)
+git_mark_limit = int(0)
 mks_ignore_dvpths_l = []    # list of MKS devpaths to be ignored (with checkpoint where devpath starts)
 mks_ignore_dvpths_s = []    # list of MKS devpaths to be ignored (only devpath names)
 mks_missing_devpaths = []
-mks_revisions_compared = 0
-mks_revisions_exported = 0
+mks_revisions_compared = int(0)
+mks_revisions_exported = int(0)
 mks_compare_sandbox_path = ""
 # ARGUMENT [1]:
 # Check operation mode of this script
@@ -721,6 +722,9 @@ with open(git_marks_cmpd_file, 'w') as f:
 # Remaining MKS & git marks to compare (compare mode)
 with open(git_marks_left_file, 'w') as f:
     f.write('%d' % mks_revisions_to_compare)
+# All MKS project revisions (export and compare mode)
+with open(mks_revis_all_file, 'w') as f:
+    f.write('%d' % mks_revisions_all)
 # Remaining MKS revisions to export (export mode)
 with open(mks_revis_left_file, 'w') as f:
     f.write('%d' % mks_revisions_to_export)
