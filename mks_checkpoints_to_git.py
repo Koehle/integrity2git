@@ -23,6 +23,15 @@ if platform.system() == 'Windows':
 # binary output this way to prevent Windows from adding CR LF (carriage return line feed) at the end of each line!
 # for git fast-import only LF (line feed) is accepted!
 
+# Dictionary keys
+class CsvDictKeyConstants:
+    # Columns for additional files only (not part of mks projects list):
+    dvpth_name = 'devpath_name'     # Development path name for a specific project
+    dvpth_strt = 'devpath_start'    # MKS starting revision for this devpath
+    dvpth_vers = 'devpath_versions' # Version information for this devpath
+    chkpt_revi = 'chkpnt_revisions' # MKS checkpoint revision(s)
+    error_msg  = 'error_message'    # MKS error message taken from "stderr"
+
 # Global file definitions
 mks_ig_devpath_file = 'dvpth_ignore.txt'   # File contains devpaths to be ignored information for the MKS project
 mks_ms_devpath_file = 'dvpth_missing.txt'  # File contains missing devpath information for the MKS project
@@ -265,6 +274,7 @@ def get_integer_value_from_file(git_sandbox_path,filename):
 # Get devpaths to be ignored list from file
 def get_ignore_devpaths_from_file(git_sandbox_path,filename):
     # The file contains a list of devpaths to be ignored!
+    cKey = CsvDictKeyConstants # Keys for dictionary
     file_list = []
     ignore_devpaths_list_long = []
     ignore_devpaths_list_short = []
@@ -280,8 +290,8 @@ def get_ignore_devpaths_from_file(git_sandbox_path,filename):
             # Each entry consists of two columns separated by ';'
             devpath_entry = {}
             columns = entry.split(';')
-            devpath_entry['devpath_name']  = columns[0]
-            devpath_entry['devpath_start'] = columns[1].replace('Checkpoint_', '')
+            devpath_entry[cKey.dvpth_name] = columns[0]
+            devpath_entry[cKey.dvpth_strt] = columns[1].replace('Checkpoint_', '')
             ignore_devpaths_list_long.append(devpath_entry)
             # In addition, create a short list containing only devpath names
             ignore_devpaths_list_short.append(columns[0])
@@ -291,6 +301,7 @@ def get_ignore_devpaths_from_file(git_sandbox_path,filename):
 # Get missing devpaths list from file
 def get_missing_devpaths_from_file(git_sandbox_path,filename):
     # The file contains a list of missing devpaths!
+    cKey = CsvDictKeyConstants # Keys for dictionary
     file_list = []
     missing_devpaths_list = []
     file = os.path.join(git_sandbox_path, '.git', filename)
@@ -305,14 +316,15 @@ def get_missing_devpaths_from_file(git_sandbox_path,filename):
             # Each entry consists of three columns separated by ';'
             devpath_entry = {}
             columns = entry.split(';')
-            devpath_entry['devpath_name']     = columns[0]
-            devpath_entry['devpath_start']    = columns[1].replace('Checkpoint_', '')
-            devpath_entry['devpath_versions'] = columns[2].replace('\\t', '\t')
+            devpath_entry[cKey.dvpth_name] = columns[0]
+            devpath_entry[cKey.dvpth_strt] = columns[1].replace('Checkpoint_', '')
+            devpath_entry[cKey.dvpth_vers] = columns[2].replace('\\t', '\t')
             missing_devpaths_list.append(devpath_entry)
     # Return list of missing devpaths for the current MKS project
     return missing_devpaths_list
 
 def retrieve_revisions(mks_project='',devpath='',missing_devpaths=[]):
+    cKey = CsvDictKeyConstants # Keys for dictionary
     if(devpath == ''):
         # versions for the master branch
         pipe = Popen('si viewprojecthistory --rfilter=devpath::current --project="%s"' % mks_project, shell=True, bufsize=1024, stdout=PIPE)
@@ -331,10 +343,10 @@ def retrieve_revisions(mks_project='',devpath='',missing_devpaths=[]):
         if(len(missing_devpaths) > 0):
             # Search the list for the current development path:
             for missing_devpath in missing_devpaths:
-                if(devpath != missing_devpath['devpath_name']):
+                if(devpath != missing_devpath[cKey.dvpth_name]):
                     continue
                 # Take over the "versions" for this development path:
-                versions = missing_devpath['devpath_versions'].split('\n')
+                versions = missing_devpath[cKey.dvpth_vers].split('\n')
         # Check if the missing devpath was found in our list
         if(len(versions) == 0):
             os.system('echo Error: "%s" was not found in the missing devpaths list!' % (devpath))
@@ -385,6 +397,7 @@ def retrieve_revisions(mks_project='',devpath='',missing_devpaths=[]):
     return revisions
 
 def retrieve_devpaths(mks_project='', missing_devpaths=[]):
+    cKey = CsvDictKeyConstants # Keys for dictionary
     pipe = Popen('si projectinfo --devpaths --noacl --noattributes --noshowCheckpointDescription --noassociatedIssues --project="%s"' % mks_project, shell=True, bufsize=1024, stdout=PIPE)
     devpaths = (pipe.stdout.read()).decode('cp850') # decode('cp850') necessary because of german umlauts
     devpaths = devpaths [1:]
@@ -394,7 +407,7 @@ def retrieve_devpaths(mks_project='', missing_devpaths=[]):
     if(len(missing_devpaths) > 0):
         for missing_devpath in missing_devpaths:
             # Add missing devpath name and start e.g. ('Missing_Devpath_1', '1.4')
-            devpath_col.append( (missing_devpath['devpath_name'],missing_devpath['devpath_start']) )
+            devpath_col.append( (missing_devpath[cKey.dvpth_name],missing_devpath[cKey.dvpth_strt]) )
     re.purge()
     devpath_col_sort = sort_devpaths(devpath_col) #order development paths by version
     return devpath_col_sort
