@@ -5,6 +5,7 @@ import os
 import subprocess
 from subprocess import Popen
 from subprocess import PIPE
+import copy
 import time
 import sys
 import re
@@ -33,23 +34,37 @@ class CsvDictKeyConstants:
     error_msg  = 'error_message'    # MKS error message taken from "stderr"
 
 # Global file definitions
-mks_ig_chkpnts_file = 'chkpt_ignore.txt'   # File contains checkpoints to be ignored information for the MKS project
-mks_ig_devpath_file = 'dvpth_ignore.txt'   # File contains devpaths to be ignored information for the MKS project
-mks_ms_devpath_file = 'dvpth_missing.txt'  # File contains missing devpath information for the MKS project
-git_marks_file      = ''                   # File contains git marks and commits (exported) - set as argument incl. path
-git_marks_mksr_file = 'marks_2_rev.txt'    # File contains git marks and the MKS revision number (exported)
-git_marks_cmpd_file = 'marks_cpd.txt'      # File contains number of compared marks (finished)
-git_marks_left_file = 'marks_left.txt'     # File contains number of remaining marks (to compare)
-mks_revis_all_file  = 'revisions_all.txt'  # File contains number of all MKS revisions (to export)
-mks_revis_left_file = 'revisions_left.txt' # File contains number of remaining revisions (to export)
+mks_all_chkpts_file = 'chkpts_all_revs.txt'# File contains all checkpoint revisions of the MKS project (write only)
+mks_prc_chkpts_file = 'chkpts_alx_revs.txt'# File contains all checkpoint revisions to be processed (write only)
+mks_cmp_chkpts_file = 'chkpts_compared.txt'# File contains checkpoints already compared for the MKS project (write only)
+mks_exp_chkpts_file = 'chkpts_exported.txt'# File contains checkpoints already exported for the MKS project (write only)
+mks_ign_chkpts_file = 'chkpts_ignore.txt'  # File contains checkpoints to be ignored for the MKS project (read only)
+mks_rmc_chkpts_file = 'chkpts_rem_cmp.txt' # File contains checkpoints still to be compared for the MKS project (read / write)
+mks_rme_chkpts_file = 'chkpts_rem_exp.txt' # File contains checkpoints still to be exported for the MKS project (read / write)
+mks_ign_dvpths_file = 'dvpths_ignore.txt'  # File contains devpaths to be ignored information for the MKS project (read only)
+mks_mis_dvpths_file = 'dvpths_missing.txt' # File contains missing devpath information for the MKS project (read only)
+git_marks_sha_file  = ''                   # File contains git marks and commits (exported) - set as argument incl. path
+git_marks_rev_file  = 'marks_2_rev.txt'    # File contains git marks and the MKS revision number (exported)
+git_marks_cpd_file  = 'marks_cpd.txt'      # File contains number of compared marks (finished)
+git_marks_rem_file  = 'marks_rem.txt'      # File contains number of remaining marks (to compare)
+mks_revis_all_file  = 'revisions_all.txt'  # File contains number of all MKS revisions (existing)
+mks_revis_prc_file  = 'revisions_alx.txt'  # File contains number of all MKS revisions to be processed
+mks_revis_exp_file  = 'revisions_exp.txt'  # File contains number of exported revisions (finished)
+mks_revis_rem_file  = 'revisions_rem.txt'  # File contains number of remaining revisions (to export)
 
 # Global variables for git marks and MKS revisions
 git_marks_cmpd_at_start = 0                # Number of compared git marks at script start (*f)
 git_marks_mks_rev_list  = []               # List with existing git marks and the associated MKS revisions (*fu)
 mks_revs2marks_list = []                   # List of MKS revisions to determine the associated git mark number (*cu)
-mks_revisions_list = []                    # List with all exported MKS revisions - redundant and for checks only (*fu)
-mks_ig_chkpts_list = []                    # List with MKS revisions to be ignored during export and comparison (*f)
+mks_revisions_all_list = []                # List of all MKS checkpoint revisions for current project (*m)
+mks_revisions_prc_list = []                # List of all MKS checkpoint revisions to be processed (*cu)
+mks_revisions_cmp_list = []                # List with compared MKS revisions - redundant and for checks only (*fu)
+mks_revisions_exp_list = []                # List with exported MKS revisions - redundant and for checks only (*fu)
+mks_revisions_ign_list = []                # List with MKS revisions to be ignored during export and comparison (*f)
+mks_revisions_rmc_list = []                # List of remaining MKS checkpoint revisions to be compared (*fu)
+mks_revisions_rme_list = []                # List of remaining MKS checkpoint revisions to be exported (*fu)
 # Additional information for the variables above:
+# (*m)  == the content is taken from MKS and up to date
 # (*f)  == the content is taken from file (as initialization)
 # (*fu) == the content is taken from file and updated during the runtime of the script
 # (*cu) == the content is only calculated and updated during the runtime of the script
@@ -204,10 +219,10 @@ def get_last_mark_from_file(filename):
 
 # Get a git commit SHA1-checksum for a given mark from marks file
 def get_git_commit_by_mark(mark):
-    global git_marks_file
+    global git_marks_sha_file
     git_commit = ""
     # read "marks file" (with all existing "mark entries")
-    marks_file_list = open(git_marks_file, 'r').read().split('\n')
+    marks_file_list = open(git_marks_sha_file, 'r').read().split('\n')
     # check all list entries for given mark number
     for entry in marks_file_list:
         # extract the string between ":" and " " to get mark
@@ -275,6 +290,21 @@ def get_mks_revisions_exported(marks_to_rev_list):
         revisions_list.append(mks_revision)
     return revisions_list
 
+# Create a list of the remaining MKS revisions to be processed
+def get_mks_revisions_remaining(rev_all_list=[],rev_ign_list=[],rev_proc_list=[]):
+    # first we create a local copy of the list with all MKS revisions
+    rev_rem_list = list(copy.deepcopy(rev_all_list))
+    # remove revisions to be ignored
+    for entry in rev_ign_list:
+        if (entry in rev_rem_list):
+            rev_rem_list.remove(entry)
+    # remove already processed revisions
+    for entry in rev_proc_list:
+        if (entry in rev_rem_list):
+            rev_rem_list.remove(entry)
+    # return list with remaining revisions
+    return rev_rem_list
+
 # Get an integer value from a specific file
 def get_integer_value_from_file(git_sandbox_path,filename):
     # The file contains only one integer value!
@@ -339,6 +369,16 @@ def get_missing_devpaths_from_file(git_sandbox_path,filename):
             missing_devpaths_list.append(devpath_entry)
     # Return list of missing devpaths for the current MKS project
     return missing_devpaths_list
+
+# Write a given list to a new text-file inside '.git' directory
+def write_list_to_file(git_sandbox_path,filename,data_list=[]):
+    file = os.path.join(git_sandbox_path, '.git', filename)
+    with open(file, 'w', newline='') as f:
+        if(len(data_list) > 0):
+            for entry in data_list:
+                f.write(str(entry) + os.linesep)
+        else:
+            pass # create an empty file
 
 def retrieve_revisions(mks_project='',devpath='',missing_devpaths=[]):
     cKey = CsvDictKeyConstants # Keys for dictionary
@@ -429,8 +469,28 @@ def retrieve_devpaths(mks_project='', missing_devpaths=[]):
     devpath_col_sort = sort_devpaths(devpath_col) #order development paths by version
     return devpath_col_sort
 
+# Retrieve a list with all checkpoint revisions for a specific MKS project
+def retrieve_all_mks_prj_checkpoints(mks_project=''):
+    # Select the "revision" field to get only the checkpoint revisions from the MKS project history
+    pipe = Popen('si viewprojecthistory --fields=revision --project="%s"' % mks_project, shell=True, bufsize=1024, stdout=PIPE)
+    revisions = pipe.stdout.read().decode('cp850').split('\n') # decode('cp850') necessary because of german umlauts in MKS history
+    # The first entry of this returned revision list contains the MKS project location as a string
+    if not(revisions[0] == mks_project):
+        os.system('echo Error: Wrong project information in checkpoint revision list received!')
+        os.system('echo Info: The returned and provided project information must be the same!')
+        os.system('echo Info: revisions[0] = "%s"' % (revisions[0]))
+        os.system('echo Info: mks_project  = "%s"' % (mks_project))
+        exit(code = 666)
+    # Remove MKS project location from list
+    revisions = revisions[1:]
+    # Remove "empty revisions" from list
+    while ('' in revisions):
+        revisions.remove('')
+    # Return checkpoint revisions list
+    return revisions
+
 def export_abort_continue(revision=[],ancestor_devpath='',last_mark=0,mark_limit=0):
-    global git_marks_mks_rev_list, mks_revisions_list
+    global git_marks_mks_rev_list, mks_revisions_exp_list
     # I noticed that the MKS client crashes when too many revisions are exported at once!
     # This mechanism is intended to divide the export to git into several steps...
     ancestor_mark = 0            # mark of the ancestor revision we will use to continue 
@@ -462,7 +522,7 @@ def export_abort_continue(revision=[],ancestor_devpath='',last_mark=0,mark_limit
         if ancestor_devpath:
             # Check if the MKS revision that represents the beginning of the current devpath exists.
             # This specific MKS revision must have been exported before this devpath...
-            if not(ancestor_devpath in mks_revisions_list):
+            if not(ancestor_devpath in mks_revisions_exp_list):
                 os.system('echo Error: Start revision "%s" for current devpath not found in mks revisions list!' % (ancestor_devpath))
                 os.system('echo Info: Check if the MKS project revision has been exported before this devpath!')
                 os.system('echo Info: If not, check if the reason could be a missing devpath in this project!')
@@ -485,7 +545,7 @@ def export_abort_continue(revision=[],ancestor_devpath='',last_mark=0,mark_limit
 
 # Export of MKS revisions as GIT commits
 def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',last_mark=0,mark_limit=0):
-    global IgnoreFileTypes, git_marks_mks_rev_list, mks_revisions_list, mks_ig_chkpts_list
+    global IgnoreFileTypes, git_marks_mks_rev_list, mks_revisions_exp_list, mks_revisions_ign_list
     revisions_exported = int(0)
     abs_sandbox_path = os.getcwd()
     integrity_file = os.path.basename(mks_project)
@@ -496,17 +556,17 @@ def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',las
         if skip_this_revision:
             continue
         # Check whether the MKS revision is to be ignored
-        if (revision["number"] in mks_ig_chkpts_list):
+        if (revision["number"] in mks_revisions_ign_list):
             os.system('echo Error: Revision "%s" shall be ignored but is part of devpath "%s"!' % (revision["number"],devpath))
             os.system('echo Info: Normally we only ignore faulty checkpoint revisions that are NOT part of a devpath!')
             os.system('echo Info: There might be an error in the list for the checkpoints to be ignored!')
             exit(code = 666)
         # Check if the MKS revision to be exported already exists
-        if (revision["number"] in mks_revisions_list):
+        if (revision["number"] in mks_revisions_exp_list):
             os.system('echo Error: Revision "%s" has already been exported!' % (revision["number"]))
             os.system('echo Info: Check project history for faulty development paths and ignore them!')
             exit(code = 666)
-        #revision_col = revision["number"].split('\.')
+        # Get or generate a mark number for current revision
         mark = convert_revision_to_mark(revision["number"])
         # Create a build sandbox of the revision
         os.system('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (mks_project, revision["number"], mark))
@@ -555,14 +615,14 @@ def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',las
         # Create a "lightweight tag" with "reset command" for this commit
         sys.stdout.buffer.write(bytes(('reset refs/tags/%s\n' % TmpStr), 'utf-8')) # MKS Checkpoint information as GIT tag
         sys.stdout.buffer.write(bytes(('from :%d\n' % mark), 'utf-8'))             # specify commit for this tag by "mark"
+        # Drop the MKS sandbox
+        os.chdir('..') # return to GIT directory
+        os.system('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
         # Create a list with git mark numbers and MKS revisions:
         TmpStr = ':' + str(mark) + ' ' + revision["number"]
         git_marks_mks_rev_list.append(TmpStr)
-        # Add revision number to MKS revisions list:
-        mks_revisions_list.append(revision["number"])
-        # Drop the sandbox
-        os.chdir('..') # return to GIT directory
-        os.system('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
+        # Add revision number to MKS revisions exported list:
+        mks_revisions_exp_list.append(revision["number"])
         # Sum up exported revisions
         revisions_exported +=1
     # return the number of exported revisions
@@ -570,16 +630,32 @@ def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',las
 
 # Comparison of MKS revisions with the resulting GIT commits (after export)
 def compare_git_mks(mks_project='',revisions=[],mks_compare_sandbox_path='',git_sandbox_path='',git_mark_limit=0):
-    global git_marks_cmpd_at_start
+    global git_marks_cmpd_at_start, git_marks_mks_rev_list, mks_revisions_cmp_list, mks_revisions_ign_list
     global IgnoreDirList, dir_compare_errors, dir_comp_err_list
     revisions_compared = int(0)
     integrity_file = os.path.basename(mks_project)
     for revision in revisions:
-        # Generate mark for current revision
+        # Get or generate a mark number for current revision
         mark = convert_revision_to_mark(revision["number"])
         # Check abort conditions for comparing the current revision
         if( (mark <= git_marks_cmpd_at_start) or (mark > (git_marks_cmpd_at_start + git_mark_limit)) ):
             continue    # Skip this revision
+        # Check if the calculated mark is correct for the MKS checkpoint revision number
+        # For this we use a list of already exported MKS checkpoint revisions and their mark numbers
+        if not(mark == get_mark_by_mks_revision(git_marks_mks_rev_list,revision["number"])):
+            os.system('echo Error: Mark "%d" does not belong to revision "%s"!' % (mark,revision["number"]))
+            os.system('echo Info: Check the MKS project history for modifications since the export process!')
+            exit(code = 666)
+        # Check whether the MKS revision is to be ignored
+        if (revision["number"] in mks_revisions_ign_list):
+            os.system('echo Error: Revision "%s" shall be ignored but is to be compared!' % (revision["number"]))
+            os.system('echo Info: There might be an error in the list for the checkpoints to be ignored!')
+            exit(code = 666)
+        # Check whether the MKS revision to be compared has already been compared
+        if (revision["number"] in mks_revisions_cmp_list):
+            os.system('echo Error: Revision "%s" has already been compared!' % (revision["number"]))
+            os.system('echo Info: Check the MKS project history for modifications since the export process!')
+            exit(code = 666)
         # Create a build sandbox of the revision
         os.chdir(mks_compare_sandbox_path)
         os.system('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (mks_project, revision["number"], mark))
@@ -613,11 +689,14 @@ def compare_git_mks(mks_project='',revisions=[],mks_compare_sandbox_path='',git_
         # Drop the MKS sandbox
         os.chdir(mks_compare_sandbox_path)
         os.system('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
+        # Add revision number to MKS revisions compared list:
+        mks_revisions_cmp_list.append(revision["number"])
         # Sum up compared revisions
         revisions_compared +=1
     return revisions_compared
 
-def get_number_of_mks_revisions(mks_project='',devpaths=[],devpaths_tb_ignored=[]):
+# Calculate the number of MKS checkpoint revisions this script will process (export & compare)
+def get_number_of_mks_revisions_to_process(mks_project='',devpaths=[],devpaths_tb_ignored=[]):
     mks_revisions_sum = int(0)
     master_revisions = retrieve_revisions(mks_project) # revisions for the master branch
     mks_revisions_sum += len(master_revisions)
@@ -686,9 +765,9 @@ if (len(sys.argv) > 3):
 # ARGUMENT [4]:
 # check if we should read a file with git marks from a previous git fast-import?
 if( (len(sys.argv) > 4) and (sys.argv[4] != "") ):
-    git_marks_file = sys.argv[4]
-    if (os.path.isfile(git_marks_file)): # check if file exists?
-        git_last_mark = get_last_mark_from_file(git_marks_file)
+    git_marks_sha_file = sys.argv[4]
+    if (os.path.isfile(git_marks_sha_file)): # check if file exists?
+        git_last_mark = get_last_mark_from_file(git_marks_sha_file)
     else:
         # For compare mode this file is mandatory!
         if(op_mode == "compare"):
@@ -713,21 +792,42 @@ else:
     # In export mode, the MKS and GIT sandbox locations are identical!
 
 # Get list of already exported GIT marks and the associated MKS revisions as initial value from file:
-git_marks_mks_rev_list = get_marks_and_revisions_from_file(git_sandbox_path,git_marks_mksr_file)
-# Create an additional list with MKS revisions (based on the GIT marks and MKS revisions list):
-mks_revisions_list = get_mks_revisions_exported(git_marks_mks_rev_list)
+git_marks_mks_rev_list = get_marks_and_revisions_from_file(git_sandbox_path,git_marks_rev_file)
+# Get list of already exported MKS revisions as initial value from file:
+mks_revisions_exp_list = get_marks_and_revisions_from_file(git_sandbox_path,mks_exp_chkpts_file)
+# Get list of already compared MKS revisions as initial value from file:
+mks_revisions_cmp_list = get_marks_and_revisions_from_file(git_sandbox_path,mks_cmp_chkpts_file)
 # Get number of already compared marks as initial value from file (necessary to skip compared MKS revisions):
-mks_revisions_compared = git_marks_cmpd_at_start = get_integer_value_from_file(git_sandbox_path,git_marks_cmpd_file)
+mks_revisions_compared = git_marks_cmpd_at_start = get_integer_value_from_file(git_sandbox_path,git_marks_cpd_file)
 # Fetch information about MKS checkpoints to be ignored from a file (if available):
-mks_ig_chkpts_list = get_marks_and_revisions_from_file(git_sandbox_path,mks_ig_chkpnts_file)
+mks_revisions_ign_list = get_marks_and_revisions_from_file(git_sandbox_path,mks_ign_chkpts_file)
 # Fetch information about MKS development paths to be ignored from a file (if available):
-mks_ignore_dvpths_l, mks_ignore_dvpths_s = get_ignore_devpaths_from_file(git_sandbox_path,mks_ig_devpath_file)
+mks_ignore_dvpths_l, mks_ignore_dvpths_s = get_ignore_devpaths_from_file(git_sandbox_path,mks_ign_dvpths_file)
 # Fetch information about missing MKS development paths from a file (if available):
-mks_missing_devpaths = get_missing_devpaths_from_file(git_sandbox_path,mks_ms_devpath_file)
+mks_missing_devpaths = get_missing_devpaths_from_file(git_sandbox_path,mks_mis_dvpths_file)
 
-# Identify the MKS development paths and revisions
+# Retrieve all MKS checkpoint revisions for this project from MKS project history
+mks_revisions_all_list = retrieve_all_mks_prj_checkpoints(mks_project)
+# Create a list of all MKS checkpoint revisions to be processed ("all list" - "ignore list")
+mks_revisions_prc_list = get_mks_revisions_remaining(mks_revisions_all_list,mks_revisions_ign_list,[])
+# Identify the MKS development paths for this project
 devpaths = retrieve_devpaths(mks_project,mks_missing_devpaths)
-revisions = retrieve_revisions(mks_project)  # revisions for the master branch
+# Get number of MKS checkpoint revisions to be processed by this script (export and compare mode)
+mks_revisions_to_process = get_number_of_mks_revisions_to_process(mks_project,devpaths,mks_ignore_dvpths_s)
+# We use different methods to generate the list of revisions to be processed and to calculate
+# the number of revisions to be processed. Therefore, we add a plausibility check here:
+if not( len(mks_revisions_prc_list) == mks_revisions_to_process ):
+    os.system('echo Error: Mismatching number of MKS checkpoints to be processed by this script!')
+    os.system('echo Info: Check the list creation and calculation process for differences!')
+    exit(code = 610)
+# Check that we have received all the necessary information about the MKS checkpoint revisions
+# Hint: We have found that there can be some faulty checkpoint revisions that are not part of a devpath.
+# Such checkpoints are ignored by this script, since only revisions belonging to devpaths are exported.
+# To force the user to consciously look at such checkpoints, the following check was implemented:
+if( (len(mks_revisions_all_list) - mks_revisions_to_process - len(mks_revisions_ign_list)) != 0 ):
+    os.system('echo Error: Mismatching number of MKS checkpoints ("all" - "to_process" - "to_ignore") != 0')
+    os.system('echo Info: Maybe some checkpoint revisions need to be ignored and provided as input list!')
+    exit(code = 611)
 
 # Check the operation mode of this script:
 if(op_mode == "export"):
@@ -736,7 +836,8 @@ if(op_mode == "export"):
     # ------------
     # Export MKS revisions to GIT.
     # The script should first be executed in this mode.
-    mks_revisions_exported += export_to_git(mks_project,revisions,0,0,git_last_mark,git_mark_limit) #export master branch first!!
+    master_revisions = retrieve_revisions(mks_project)  # revisions for the master branch
+    mks_revisions_exported += export_to_git(mks_project,master_revisions,0,0,git_last_mark,git_mark_limit) #export master branch first!!
     for devpath in devpaths:
         if(devpath[0] in mks_ignore_dvpths_s): # Check if this devpath is faulty and should be ignored
             continue                           # Skip invalid devpath!
@@ -751,7 +852,8 @@ elif(op_mode == "compare"):
     # -------------
     # Compare MKS revisions with GIT commits (after a previous export).
     # The script can be run in this mode as a second step to check the export to GIT.
-    mks_revisions_compared += compare_git_mks(mks_project,revisions,mks_compare_sandbox_path,git_sandbox_path,git_mark_limit) # compare master branch
+    master_revisions = retrieve_revisions(mks_project)  # revisions for the master branch
+    mks_revisions_compared += compare_git_mks(mks_project,master_revisions,mks_compare_sandbox_path,git_sandbox_path,git_mark_limit) # compare master branch
     for devpath in devpaths:
         if(devpath[0] in mks_ignore_dvpths_s): # Check if this devpath is faulty and should be ignored
             continue                           # Skip invalid devpath!
@@ -761,28 +863,62 @@ elif(op_mode == "compare"):
         mks_revisions_compared += compare_git_mks(mks_project,devpath_revisions,mks_compare_sandbox_path,git_sandbox_path,git_mark_limit) # compare devpath branch
     # --- end of compare mode ---
 
-# Calculation of remaining MKS revisions (after running this script) as a reminder for a later run of this script
-mks_revisions_all = get_number_of_mks_revisions(mks_project,devpaths,mks_ignore_dvpths_s)
-mks_revisions_to_compare = (mks_revisions_all - mks_revisions_compared)
-mks_revisions_to_export  = (mks_revisions_all - mks_revisions_exported - git_last_mark)
-# Write remaining MKS revisions to a file in .git directory (overwrite file 'w' if it exists)
-os.chdir(os.path.join(git_sandbox_path, '.git'))
-# Compared MKS revisions and git marks (compare mode)
-with open(git_marks_cmpd_file, 'w') as f:
-    f.write('%d' % mks_revisions_compared)
-# Remaining MKS & git marks to compare (compare mode)
-with open(git_marks_left_file, 'w') as f:
-    f.write('%d' % mks_revisions_to_compare)
-# All MKS project revisions (export and compare mode)
-with open(mks_revis_all_file, 'w') as f:
-    f.write('%d' % mks_revisions_all)
-# Remaining MKS revisions to export (export mode)
-with open(mks_revis_left_file, 'w') as f:
-    f.write('%d' % mks_revisions_to_export)
-# List of git marks and MKS revisions (export mode)
-with open(git_marks_mksr_file, 'w', newline='') as f:
-    for entry in git_marks_mks_rev_list:
-        f.write(str(entry) + os.linesep)
+# Calculation of remaining MKS revisions (after running this script) for checks and as a reminder for a later run of this script
+mks_revisions_rmc_list = get_mks_revisions_remaining(mks_revisions_all_list,mks_revisions_ign_list,mks_revisions_cmp_list) # compare
+mks_revisions_rme_list = get_mks_revisions_remaining(mks_revisions_all_list,mks_revisions_ign_list,mks_revisions_exp_list) # export
+mks_revisions_rem_to_compare = (mks_revisions_to_process - mks_revisions_compared)
+mks_revisions_rem_to_export  = (mks_revisions_to_process - mks_revisions_exported - git_last_mark)
+
+# Write information to files in .git directory (overwrite file 'w' if it exists)
 # The files can be read to decide if the script needs to be called again.
+os.chdir(os.path.join(git_sandbox_path, '.git'))
+# No. of compared MKS revisions and git marks (compare mode)
+with open(git_marks_cpd_file, 'w') as f:
+    f.write('%d' % mks_revisions_compared)
+# No. of remaining MKS & git marks to compare (compare mode)
+with open(git_marks_rem_file, 'w') as f:
+    f.write('%d' % mks_revisions_rem_to_compare)
+# No. of all MKS project checkpoint revisions (for information)
+with open(mks_revis_all_file, 'w') as f:
+    f.write('%d' % (len(mks_revisions_all_list)))
+# No. of MKS project revisions to be processed (export mode)
+with open(mks_revis_prc_file, 'w') as f:
+    f.write('%d' % mks_revisions_to_process)
+# No. of remaining MKS revisions to export (export mode)
+with open(mks_revis_rem_file, 'w') as f:
+    f.write('%d' % mks_revisions_rem_to_export)
+
+# List of git marks and MKS revisions (export mode)
+write_list_to_file(git_sandbox_path, git_marks_rev_file,  git_marks_mks_rev_list)
+# List of all MKS checkpoint revisions (export mode)
+write_list_to_file(git_sandbox_path, mks_all_chkpts_file, mks_revisions_all_list)
+# List of MKS checkpoint revisions to be processed (export mode)
+write_list_to_file(git_sandbox_path, mks_prc_chkpts_file, mks_revisions_prc_list)
+# List of already exported MKS revisions (export mode)
+write_list_to_file(git_sandbox_path, mks_exp_chkpts_file, mks_revisions_exp_list)
+# List of already compared MKS revisions (compare mode)
+write_list_to_file(git_sandbox_path, mks_cmp_chkpts_file, mks_revisions_cmp_list)
+# List of remaining MKS revisions to be exported (export mode)
+write_list_to_file(git_sandbox_path, mks_rme_chkpts_file, mks_revisions_rme_list)
+# List of remaining MKS revisions to be compared (compare mode)
+write_list_to_file(git_sandbox_path, mks_rmc_chkpts_file, mks_revisions_rmc_list)
+
+# --- Additional plausibility checks after writing the files ---
+# Check whether the number of list entries (revisions to be compared)
+# matches the calculation of the revisions still to be compared.
+if not( len(mks_revisions_rmc_list) == mks_revisions_rem_to_compare ):
+    os.system('echo Error: Mismatch in number of MKS checkpoint revisions to be compared detected!')
+    os.system('echo Info: No. of remaining revisions in list = %d' % (len(mks_revisions_rmc_list)))
+    os.system('echo Info: Calculation of remaining revisions = %d' % (mks_revisions_rem_to_compare))
+    exit(code = 612)
+# Check whether the number of list entries (revisions to be exported)
+# matches the calculation of the revisions still to be exported.
+if not( len(mks_revisions_rme_list) == mks_revisions_rem_to_export ):
+    os.system('echo Error: Mismatch in number of MKS checkpoint revisions to be exported detected!')
+    os.system('echo Info: No. of remaining revisions in list = %d' % (len(mks_revisions_rme_list)))
+    os.system('echo Info: Calculation of remaining revisions = %d' % (mks_revisions_rem_to_export))
+    exit(code = 613)
+
+# If no errors were detected:
 exit(code = 0)  # Normal exit (no error)
 
