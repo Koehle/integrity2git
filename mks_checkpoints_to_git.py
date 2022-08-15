@@ -365,7 +365,7 @@ def get_missing_devpaths_from_file(git_sandbox_path,filename):
             columns = entry.split(';')
             devpath_entry[cKey.dvpth_name] = columns[0]
             devpath_entry[cKey.dvpth_strt] = columns[1].replace('Checkpoint_', '')
-            devpath_entry[cKey.dvpth_vers] = columns[2].replace('\\t', '\t')
+            devpath_entry[cKey.dvpth_vers] = columns[2].replace('\\t', '\t').replace('\\n', '\n')
             missing_devpaths_list.append(devpath_entry)
     # Return list of missing devpaths for the current MKS project
     return missing_devpaths_list
