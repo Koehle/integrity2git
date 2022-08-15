@@ -814,20 +814,23 @@ mks_revisions_prc_list = get_mks_revisions_remaining(mks_revisions_all_list,mks_
 devpaths = retrieve_devpaths(mks_project,mks_missing_devpaths)
 # Get number of MKS checkpoint revisions to be processed by this script (export and compare mode)
 mks_revisions_to_process = get_number_of_mks_revisions_to_process(mks_project,devpaths,mks_ignore_dvpths_s)
-# We use different methods to generate the list of revisions to be processed and to calculate
-# the number of revisions to be processed. Therefore, we add a plausibility check here:
+# We use different methods to generate "the list of revisions to be processed" and to calculate
+# "the number of revisions to be processed". To force the user to consciously look at MKS project
+# errors, we added a plausibility check here:
 if not( len(mks_revisions_prc_list) == mks_revisions_to_process ):
     os.system('echo Error: Mismatching number of MKS checkpoints to be processed by this script!')
     os.system('echo Info: Check the list creation and calculation process for differences!')
+    os.system('echo       One or more of the following 3 situations could be present:')
+    os.system('echo (S1): Maybe some checkpoint revisions need to be ignored and provided as input to this script!')
+    os.system('echo       Typically these checkpoint revisions are faulty and do not belong to any devpaths!')
+    os.system('echo       None of the checkpoints that are part of a valid devpath should be ignored!')
+    os.system('echo (S2): Some devpaths may be faulty and they need to be ignored for the calculation process!')
+    os.system('echo       Typically, these devpaths have no "real" checkpoint revisions in the project history!')
+    os.system('echo       Please provide faulty devpaths as input to this script via the devpaths ignore file!')
+    os.system('echo (S3): It is also possible that devpaths are missing and their revisions are not included')
+    os.system('echo       in the number of revisions to be processed. In this case, please supply the')
+    os.system('echo       missing devpaths via the missing devpaths file as input to this script.')
     exit(code = 610)
-# Check that we have received all the necessary information about the MKS checkpoint revisions
-# Hint: We have found that there can be some faulty checkpoint revisions that are not part of a devpath.
-# Such checkpoints are ignored by this script, since only revisions belonging to devpaths are exported.
-# To force the user to consciously look at such checkpoints, the following check was implemented:
-if( (len(mks_revisions_all_list) - mks_revisions_to_process - len(mks_revisions_ign_list)) != 0 ):
-    os.system('echo Error: Mismatching number of MKS checkpoints ("all" - "to_process" - "to_ignore") != 0')
-    os.system('echo Info: Maybe some checkpoint revisions need to be ignored and provided as input list!')
-    exit(code = 611)
 
 # Check the operation mode of this script:
 if(op_mode == "export"):
@@ -910,14 +913,14 @@ if not( len(mks_revisions_rmc_list) == mks_revisions_rem_to_compare ):
     os.system('echo Error: Mismatch in number of MKS checkpoint revisions to be compared detected!')
     os.system('echo Info: No. of remaining revisions in list = %d' % (len(mks_revisions_rmc_list)))
     os.system('echo Info: Calculation of remaining revisions = %d' % (mks_revisions_rem_to_compare))
-    exit(code = 612)
+    exit(code = 611)
 # Check whether the number of list entries (revisions to be exported)
 # matches the calculation of the revisions still to be exported.
 if not( len(mks_revisions_rme_list) == mks_revisions_rem_to_export ):
     os.system('echo Error: Mismatch in number of MKS checkpoint revisions to be exported detected!')
     os.system('echo Info: No. of remaining revisions in list = %d' % (len(mks_revisions_rme_list)))
     os.system('echo Info: Calculation of remaining revisions = %d' % (mks_revisions_rem_to_export))
-    exit(code = 613)
+    exit(code = 612)
 
 # If no errors were detected:
 exit(code = 0)  # Normal exit (no error)
