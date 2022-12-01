@@ -3,8 +3,6 @@
 
 import os
 import subprocess
-from subprocess import Popen
-from subprocess import PIPE
 import copy
 import time
 import sys
@@ -380,17 +378,41 @@ def write_list_to_file(git_sandbox_path,filename,data_list=[]):
         else:
             pass # create an empty file
 
+# Excecute an MKS command with the subprocess module
+def mks_cmd(cmd='', capture_output=False):
+    # Try the MKS command several times
+    for attempt in range(3):
+        try:
+            # If "check" is true, and the process exits with a non-zero exit code, an exception will be raised.
+            # Execution with result = "CompletedProcess" if there is no exception (Info: "timeout" value in seconds)
+            result = subprocess.run(cmd, shell=True, bufsize=1024, capture_output=capture_output, timeout=300, check=True)
+            exit_code = 0
+        except:
+            # Handling of exceptions (e.g. due to a "timeout" or another cause of error detected by the "check" option)
+            exit_code = 999
+        # Exit the for loop if the execution was successful
+        if(exit_code == 0): break
+        # Wait a moment before the next attempt
+        time.sleep(5)
+    # Error handling if execution was NOT successful
+    else:
+        # The MKS "cmd" message is forwarded to Git fast-import and is part of the "fast_import_crash" protocol,
+        # as Git fast-import does not know our message (including the MKS command) and therefore stops execution as well!
+        print('Exception during MKS command "%s"' % (cmd))
+        exit(exit_code)
+    return result
+
 def retrieve_revisions(mks_project='',devpath='',missing_devpaths=[]):
     cKey = CsvDictKeyConstants # Keys for dictionary
     if(devpath == ''):
         # versions for the master branch
-        pipe = Popen('si viewprojecthistory --rfilter=devpath::current --project="%s"' % mks_project, shell=True, bufsize=1024, stdout=PIPE)
-        versions = pipe.stdout.read().decode('cp850').split('\n') # decode('cp850') necessary because of german umlauts in MKS history
+        result = mks_cmd('si viewprojecthistory --rfilter=devpath::current --project="%s"' % mks_project, capture_output=True)
+        versions = result.stdout.decode('cp850').split('\n') # decode('cp850') necessary because of german umlauts in MKS history
         versions = versions[1:]
     elif not(devpath.lower().startswith('missing_devpath_')):
         # versions for a development path available on the MKS server
-        pipe = Popen('si viewprojecthistory --rfilter=devpath:"%s" --project="%s"' % (devpath, mks_project), shell=True, bufsize=1024, stdout=PIPE)
-        versions = pipe.stdout.read().decode('cp850').split('\n') # decode('cp850') necessary because of german umlauts in MKS history
+        result = mks_cmd('si viewprojecthistory --rfilter=devpath:"%s" --project="%s"' % (devpath, mks_project), capture_output=True)
+        versions = result.stdout.decode('cp850').split('\n') # decode('cp850') necessary because of german umlauts in MKS history
         versions = versions[1:]
     else:
         # versions for a missing development path (the development path information is missing on the MKS server)
@@ -455,8 +477,8 @@ def retrieve_revisions(mks_project='',devpath='',missing_devpaths=[]):
 
 def retrieve_devpaths(mks_project='', missing_devpaths=[]):
     cKey = CsvDictKeyConstants # Keys for dictionary
-    pipe = Popen('si projectinfo --devpaths --noacl --noattributes --noshowCheckpointDescription --noassociatedIssues --project="%s"' % mks_project, shell=True, bufsize=1024, stdout=PIPE)
-    devpaths = (pipe.stdout.read()).decode('cp850') # decode('cp850') necessary because of german umlauts
+    result = mks_cmd('si projectinfo --devpaths --noacl --noattributes --noshowCheckpointDescription --noassociatedIssues --project="%s"' % mks_project, capture_output=True)
+    devpaths = result.stdout.decode('cp850') # decode('cp850') necessary because of german umlauts
     devpaths = devpaths [1:]
     devpaths_re = re.compile('    (.+) \(([0-9][\.0-9]+)\)\n')
     devpath_col = devpaths_re.findall(devpaths)
@@ -472,8 +494,8 @@ def retrieve_devpaths(mks_project='', missing_devpaths=[]):
 # Retrieve a list with all checkpoint revisions for a specific MKS project
 def retrieve_all_mks_prj_checkpoints(mks_project=''):
     # Select the "revision" field to get only the checkpoint revisions from the MKS project history
-    pipe = Popen('si viewprojecthistory --fields=revision --project="%s"' % mks_project, shell=True, bufsize=1024, stdout=PIPE)
-    revisions = pipe.stdout.read().decode('cp850').split('\n') # decode('cp850') necessary because of german umlauts in MKS history
+    result = mks_cmd('si viewprojecthistory --fields=revision --project="%s"' % mks_project, capture_output=True)
+    revisions = result.stdout.decode('cp850').split('\n') # decode('cp850') necessary because of german umlauts in MKS history
     # The first entry of this returned revision list contains the MKS project location as a string
     if not(revisions[0] == mks_project):
         os.system('echo Error: Wrong project information in checkpoint revision list received!')
@@ -569,7 +591,7 @@ def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',las
         # Get or generate a mark number for current revision
         mark = convert_revision_to_mark(revision["number"])
         # Create a build sandbox of the revision
-        os.system('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (mks_project, revision["number"], mark))
+        mks_cmd('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (mks_project, revision["number"], mark))
         os.chdir('tmp%d' % mark) #the reason why a number is added to the end of this is because MKS doesn't always drop the full file structure when it should, so they all should have unique names
         if devpath:
             sys.stdout.buffer.write(bytes(('commit refs/heads/devpath/%s\n' % devpath), 'utf-8'))
@@ -617,7 +639,7 @@ def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',las
         sys.stdout.buffer.write(bytes(('from :%d\n' % mark), 'utf-8'))             # specify commit for this tag by "mark"
         # Drop the MKS sandbox
         os.chdir('..') # return to GIT directory
-        os.system('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
+        mks_cmd('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
         # Create a list with git mark numbers and MKS revisions:
         TmpStr = ':' + str(mark) + ' ' + revision["number"]
         git_marks_mks_rev_list.append(TmpStr)
@@ -658,7 +680,7 @@ def compare_git_mks(mks_project='',revisions=[],mks_compare_sandbox_path='',git_
             exit(code = 666)
         # Create a build sandbox of the revision
         os.chdir(mks_compare_sandbox_path)
-        os.system('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (mks_project, revision["number"], mark))
+        mks_cmd('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (mks_project, revision["number"], mark))
         os.chdir('tmp%d' % mark) #the reason why a number is added to the end of this is because MKS doesn't always drop the full file structure when it should, so they all should have unique names
         tmp_mks_compare_sandbox_path = os.getcwd()
         # Checkout GIT commit that belongs to this mark (and MKS revision) in detached head state
@@ -688,7 +710,7 @@ def compare_git_mks(mks_project='',revisions=[],mks_compare_sandbox_path='',git_
             exit(code = 666)
         # Drop the MKS sandbox
         os.chdir(mks_compare_sandbox_path)
-        os.system('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
+        mks_cmd('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
         # Add revision number to MKS revisions compared list:
         mks_revisions_cmp_list.append(revision["number"])
         # Sum up compared revisions
