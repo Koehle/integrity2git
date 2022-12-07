@@ -76,6 +76,10 @@ dir_comp_err_list  = []                    # error list, containing differences 
 # External compare tool "Meld" which can be used in case of comparison errors
 MELD_COMPARE_WINDOWS = 'C:\\Program Files (x86)\\Meld\\Meld.exe'
 
+# Lists for git ref string manipulation (e.g. for devpaths or tags)
+REMOVE_GIT_CHAR_LIST = ['\\','|','?',':','"','<','>','[',']','*','~','^']
+REPLACE_GIT_CHAR_LIST = [[' ','..'],['_','.']]
+
 # Source for the following code snippet / python script:
 # https://gist.github.com/johnberroa/cd49976220933a2c881e89b69699f2f7
 # Removes umlauts from strings and replaces them with the letter+e convention
@@ -632,8 +636,18 @@ def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',las
             TmpStr = "%s__%s" % (revision["number"], revision["label"])
         else: # Use MKS Revision number as tag only!
             TmpStr = revision["number"]
-        # Check if the new tag is valid (it must not contain spaces)
-        TmpStr = TmpStr.replace(' ', '_') # Replace spaces ' ' with underscore '_'
+        # Check if the new tag is valid (e.g. it must not contain spaces)
+        # Details on the requirements for a "git tag" are here:
+        # https://www.git-scm.com/docs/git-check-ref-format
+        # Remove selected characters
+        for char in REMOVE_GIT_CHAR_LIST:
+            TmpStr = TmpStr.replace(char, '')
+        # Replace selected characters
+        for idx in range(len(REPLACE_GIT_CHAR_LIST[0])):
+            TmpStr = TmpStr.replace(REPLACE_GIT_CHAR_LIST[0][idx], REPLACE_GIT_CHAR_LIST[1][idx])
+        # The new tag string must not end with a dot "."
+        while(TmpStr.endswith('.')):
+            TmpStr = TmpStr[:-1]
         # Create a "lightweight tag" with "reset command" for this commit
         sys.stdout.buffer.write(bytes(('reset refs/tags/%s\n' % TmpStr), 'utf-8')) # MKS Checkpoint information as GIT tag
         sys.stdout.buffer.write(bytes(('from :%d\n' % mark), 'utf-8'))             # specify commit for this tag by "mark"
