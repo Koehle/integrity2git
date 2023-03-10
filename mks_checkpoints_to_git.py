@@ -61,6 +61,7 @@ mks_revisions_exp_list = []                # List with exported MKS revisions - 
 mks_revisions_ign_list = []                # List with MKS revisions to be ignored during export and comparison (*f)
 mks_revisions_rmc_list = []                # List of remaining MKS checkpoint revisions to be compared (*fu)
 mks_revisions_rme_list = []                # List of remaining MKS checkpoint revisions to be exported (*fu)
+mks_revisions_skipped  = False             # Flag to remember that MKS checkpoint revisions have been skipped (*cu)
 # Additional information for the variables above:
 # (*m)  == the content is taken from MKS and up to date
 # (*f)  == the content is taken from file (as initialization)
@@ -515,33 +516,43 @@ def retrieve_all_mks_prj_checkpoints(mks_project=''):
     # Return checkpoint revisions list
     return revisions
 
-def export_abort_continue(revision=[],ancestor_devpath='',last_mark=0,mark_limit=0):
-    global git_marks_mks_rev_list, mks_revisions_exp_list
+def export_abort_continue(revision=[],ancestor_devpath='',last_mark=0,mark_limit=0,rev_ign_list=[]):
+    global git_marks_mks_rev_list, mks_revisions_exp_list, mks_revisions_skipped
     # I noticed that the MKS client crashes when too many revisions are exported at once!
     # This mechanism is intended to divide the export to git into several steps...
     ancestor_mark = 0            # mark of the ancestor revision we will use to continue 
-    # Check "arguments" for abort condition (mark_limit) to prevent MKS / Java crash
-    # and "last_mark" to continue with an import after a previous abort due to limit.
-    if( last_mark ): # If there is a "last_mark" from a previous import
-        if( get_last_mark_from_python() < last_mark ):
-            # create NEW python internal "mark list", until the mark for the continuation is reached...
-            convert_revision_to_mark(revision["number"])
-            skip_this_revision = 1 # No export to git for this revision!
-        elif( get_last_mark_from_python() == last_mark ):
-            # The last mark is the ancestor for our current revision!
-            ancestor_mark = last_mark # remember it as ancestor to continue!
-            skip_this_revision = 0 # Export this revision to git!
-        elif( get_last_mark_from_python() >= (last_mark + mark_limit) ):
-            # Abort condition is defined by "last_mark" + "mark_limit"
-            skip_this_revision = 1 # No export to git for this revision!
-        else: # All revisions from "last_mark" to "last_mark + mark_limit"
-            skip_this_revision = 0 # Export this revision to git!
-    elif( mark_limit ): # If only "mark_limit" is defined
-        if( get_last_mark_from_python() >= mark_limit ):
-            # Abort condition is defined by one argument (mark limit) only!
-            skip_this_revision = 1 # No export to git for this revision!
-        else:
-            skip_this_revision = 0 # Export this revision to git!
+    # Check if the current MKS revision should be ignored?
+    # This is a very special case to handle invalid checkpoints within a valid development path!
+    # Normally all checkpoint revisions of a development path must be exported here!
+    if (revision["number"] in rev_ign_list):
+        skip_this_revision = 1 # No export to git for this revision!
+        mks_revisions_skipped = True # Remember that MKS revisions have been skipped!
+    else:
+        # Check "arguments" for abort condition (mark_limit) to prevent MKS / Java crash
+        # and "last_mark" to continue with an import after a previous abort due to limit.
+        if( last_mark ): # If there is a "last_mark" from a previous import
+            if( get_last_mark_from_python() < last_mark ):
+                # create NEW python internal "mark list", until the mark for the continuation is reached...
+                convert_revision_to_mark(revision["number"])
+                skip_this_revision = 1 # No export to git for this revision!
+            elif( get_last_mark_from_python() == last_mark ):
+                # The last mark is the ancestor for our current revision!
+                ancestor_mark = last_mark # remember it as ancestor to continue!
+                skip_this_revision = 0 # Export this revision to git!
+            elif( get_last_mark_from_python() >= (last_mark + mark_limit) ):
+                # Abort condition is defined by "last_mark" + "mark_limit"
+                skip_this_revision = 1 # No export to git for this revision!
+            else: # All revisions from "last_mark" to "last_mark + mark_limit"
+                if (mks_revisions_skipped == True):
+                    mks_revisions_skipped = False # Reset the "revisions skipped" flag
+                    ancestor_mark = get_last_mark_from_python() # Get the mark of the last git commit
+                skip_this_revision = 0 # Export this revision to git!
+        elif( mark_limit ): # If only "mark_limit" is defined
+            if( get_last_mark_from_python() >= mark_limit ):
+                # Abort condition is defined by one argument (mark limit) only!
+                skip_this_revision = 1 # No export to git for this revision!
+            else:
+                skip_this_revision = 0 # Export this revision to git!
     # Check if this revision is skipped?
     if not skip_this_revision:
         # Check if there is an ancestor revision for a devpath?
@@ -577,16 +588,10 @@ def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',las
     integrity_file = os.path.basename(mks_project)
     for revision in revisions:
         # Check abort conditions for exporting the current revision
-        skip_this_revision, ancestor_mark = export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit)
+        skip_this_revision, ancestor_mark = export_abort_continue(revision,ancestor_devpath,last_mark,mark_limit,mks_revisions_ign_list)
         ancestor_devpath = '' # reset ("ancestor_mark" is relevant now!)
         if skip_this_revision:
             continue
-        # Check whether the MKS revision is to be ignored
-        if (revision["number"] in mks_revisions_ign_list):
-            os.system('echo Error: Revision "%s" shall be ignored but is part of devpath "%s"!' % (revision["number"],devpath))
-            os.system('echo Info: Normally we only ignore faulty checkpoint revisions that are NOT part of a devpath!')
-            os.system('echo Info: There might be an error in the list for the checkpoints to be ignored!')
-            exit(code = 666)
         # Check if the MKS revision to be exported already exists
         if (revision["number"] in mks_revisions_exp_list):
             os.system('echo Error: Revision "%s" has already been exported!' % (revision["number"]))
@@ -609,9 +614,10 @@ def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',las
         sys.stdout.buffer.write(bytes(('encoding iso-8859-1\n'), 'utf-8')) #encoding for the following description ('iso-8859-1')
         sys.stdout.buffer.write(bytes(('data %d\n%s\n' % (len(revision["description"]), revision["description"])), 'iso-8859-1'))
         if ancestor_mark:
-            # There are 2 cases where this code is relevant:
+            # There are 3 cases where this code is relevant:
             # 1) we're starting a development path so we need to start from it was originally branched from
             # 2) we continue an earlier export and import at this point (start from there again)
+            # 3) we ignore some invalid revisions of a development path and start again from a valid revision
             sys.stdout.buffer.write(bytes(('from :%d\n' % ancestor_mark), 'utf-8')) 
         sys.stdout.buffer.write(b'deleteall\n')
         tree = os.walk('.')
@@ -671,6 +677,11 @@ def compare_git_mks(mks_project='',revisions=[],mks_compare_sandbox_path='',git_
     revisions_compared = int(0)
     integrity_file = os.path.basename(mks_project)
     for revision in revisions:
+        # Check if the current MKS revision should be ignored?
+        # This is a very special case to handle invalid checkpoints within a valid development path!
+        # Normally all checkpoint revisions of a development path must be exported here!
+        if (revision["number"] in mks_revisions_ign_list):
+            continue
         # Get or generate a mark number for current revision
         mark = convert_revision_to_mark(revision["number"])
         # Check abort conditions for comparing the current revision
@@ -681,11 +692,6 @@ def compare_git_mks(mks_project='',revisions=[],mks_compare_sandbox_path='',git_
         if not(mark == get_mark_by_mks_revision(git_marks_mks_rev_list,revision["number"])):
             os.system('echo Error: Mark "%d" does not belong to revision "%s"!' % (mark,revision["number"]))
             os.system('echo Info: Check the MKS project history for modifications since the export process!')
-            exit(code = 666)
-        # Check whether the MKS revision is to be ignored
-        if (revision["number"] in mks_revisions_ign_list):
-            os.system('echo Error: Revision "%s" shall be ignored but is to be compared!' % (revision["number"]))
-            os.system('echo Info: There might be an error in the list for the checkpoints to be ignored!')
             exit(code = 666)
         # Check whether the MKS revision to be compared has already been compared
         if (revision["number"] in mks_revisions_cmp_list):
@@ -732,17 +738,21 @@ def compare_git_mks(mks_project='',revisions=[],mks_compare_sandbox_path='',git_
     return revisions_compared
 
 # Calculate the number of MKS checkpoint revisions this script will process (export & compare)
-def get_number_of_mks_revisions_to_process(mks_project='',devpaths=[],devpaths_tb_ignored=[]):
-    mks_revisions_sum = int(0)
-    master_revisions = retrieve_revisions(mks_project) # revisions for the master branch
-    mks_revisions_sum += len(master_revisions)
+def get_number_of_mks_revisions_to_process(mks_project='',devpaths=[],devpaths_tb_ignored=[],revisions_tb_ignored=[]):
+    prj_revisions_list = retrieve_revisions(mks_project) # revisions for the master branch
     for devpath in devpaths:
         # specific devpaths should be ignored
         if (devpath[0] in devpaths_tb_ignored):
             continue
         devpath_revisions = retrieve_revisions(mks_project,devpath[0],mks_missing_devpaths)  # revisions for a specific development path
-        mks_revisions_sum += len(devpath_revisions)
-    return mks_revisions_sum    # sum of all revisions for the current MKS integrity project
+        prj_revisions_list.extend(devpath_revisions) # add the development path revisions to the projects revisions list
+    # Remove all checkpoint revisions to be ignored from this list (only revisions belonging to a valid development path are relevant here)!
+    for rev_ignore in revisions_tb_ignored:
+        for entry in prj_revisions_list:
+            if (rev_ignore == entry['number']):
+                prj_revisions_list.remove(entry)
+                break # inner loop
+    return len(prj_revisions_list)  # sum of all revisions for the current MKS integrity project
 
 
 # ==================================================================
@@ -849,7 +859,7 @@ mks_revisions_prc_list = get_mks_revisions_remaining(mks_revisions_all_list,mks_
 # Identify the MKS development paths for this project
 devpaths = retrieve_devpaths(mks_project,mks_missing_devpaths)
 # Get number of MKS checkpoint revisions to be processed by this script (export and compare mode)
-mks_revisions_to_process = get_number_of_mks_revisions_to_process(mks_project,devpaths,mks_ignore_dvpths_s)
+mks_revisions_to_process = get_number_of_mks_revisions_to_process(mks_project,devpaths,mks_ignore_dvpths_s,mks_revisions_ign_list)
 # We use different methods to generate "the list of revisions to be processed" and to calculate
 # "the number of revisions to be processed". To force the user to consciously look at MKS project
 # errors, we added a plausibility check here:
