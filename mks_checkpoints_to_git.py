@@ -754,6 +754,19 @@ def get_number_of_mks_revisions_to_process(mks_project='',devpaths=[],devpaths_t
                 break # inner loop
     return len(prj_revisions_list)  # sum of all revisions for the current MKS integrity project
 
+# Check and modify development path name before export to git
+def check_and_modify_devpath_name(dvpth_name:str='', existing_dvpths:list[str]=[]):
+    # Branch names can not have spaces in git so replace with underscores
+    dvpth_name = dvpth_name.replace(' ','_')
+    # Check if this development path name already exists
+    while (dvpth_name.lower() in existing_dvpths):
+        # Add a trailing "x" to this devpath name (to prevent duplicate davpath names).
+        # We had problems with development paths that differed only by capitalization.
+        dvpth_name = dvpth_name + 'x'
+    # Add this devpath name to the list (lowercase letters only)!
+    existing_dvpths.append(dvpth_name.lower())
+    # Return the new devpath name (including capital letters)
+    return dvpth_name
 
 # ==================================================================
 # Arguments for this script:
@@ -887,13 +900,15 @@ if(op_mode == "export"):
     # The script should first be executed in this mode.
     master_revisions = retrieve_revisions(mks_project)  # revisions for the master branch
     mks_revisions_exported += export_to_git(mks_project,master_revisions,0,0,git_last_mark,git_mark_limit) #export master branch first!!
+    devpath_name_list = [] # remember devpaths names of this project (in lowercase letters) for additional checks
     for devpath in devpaths:
         if(devpath[0] in mks_ignore_dvpths_s): # Check if this devpath is faulty and should be ignored
             continue                           # Skip invalid devpath!
         devpath_revisions = retrieve_revisions(mks_project,devpath[0],mks_missing_devpaths)  # revisions for a specific development path
         if(len(devpath_revisions) == 0): # Check number of revision entries for devpath (by "no entries" an invalid devpath is indicated).
             continue                     # Skip invalid devpath!
-        mks_revisions_exported += export_to_git(mks_project,devpath_revisions,devpath[0].replace(' ','_'),devpath[1],git_last_mark,git_mark_limit) #branch names can not have spaces in git so replace with underscores
+        devpath_name = check_and_modify_devpath_name(devpath[0], devpath_name_list) # check and modify development path name before export to git
+        mks_revisions_exported += export_to_git(mks_project,devpath_revisions,devpath_name,devpath[1],git_last_mark,git_mark_limit) # export devpath branch
     # --- end of export mode ---
 elif(op_mode == "compare"):
     # -------------
