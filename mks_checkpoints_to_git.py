@@ -391,19 +391,26 @@ def mks_cmd(cmd='', capture_output=False):
             # If "check" is true, and the process exits with a non-zero exit code, an exception will be raised.
             # Execution with result = "CompletedProcess" if there is no exception (Info: "timeout" value in seconds)
             result = subprocess.run(cmd, shell=True, bufsize=1024, capture_output=capture_output, timeout=300, check=True)
+            # Exit the for loop if the execution was successful
             exit_code = 0
-        except:
-            # Handling of exceptions (e.g. due to a "timeout" or another cause of error detected by the "check" option)
-            exit_code = 999
-        # Exit the for loop if the execution was successful
-        if(exit_code == 0): break
-        # Wait a moment before the next attempt
-        time.sleep(5)
+            break
+        # Handling of exceptions (e.g. due to a "timeout" or another cause of error detected by the "check" option)
+        except subprocess.CalledProcessError as e:
+            # Exit the for loop with the return code of the subprocess (MKS Integrity "exit status values" from 0 to 255)
+            exep_type = 'CalledProcessError'
+            exit_code = e.returncode
+            break
+        except subprocess.TimeoutExpired as e:
+            # Take the timeout value + attempt as exit code (Note: MKS Integrity "exit status values" are <= 255)
+            exep_type = 'TimeoutExpired'
+            exit_code = e.timeout + attempt
+            # Wait a moment before the next attempt
+            time.sleep(5)
     # Error handling if execution was NOT successful
-    else:
+    if(exit_code != 0):
         # The MKS "cmd" message is forwarded to Git fast-import and is part of the "fast_import_crash" protocol,
         # as Git fast-import does not know our message (including the MKS command) and therefore stops execution as well!
-        print('Exception during MKS command "%s"' % (cmd))
+        print('Exception "%s" during MKS command "%s" with returncode "%d"' % (exep_type, cmd, exit_code))
         exit(exit_code)
     return result
 
