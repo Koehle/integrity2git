@@ -399,6 +399,9 @@ def mks_cmd(cmd='', capture_output=False):
             # Exit the for loop with the return code of the subprocess (MKS Integrity "exit status values" from 0 to 255)
             exep_type = 'CalledProcessError'
             exit_code = e.returncode
+            result    = e.returncode
+            if (exit_code == 128):      # General command failure
+                result = exit_code = 0  # Ignore this returncode
             break
         except subprocess.TimeoutExpired as e:
             # Take the timeout value + attempt as exit code (Note: MKS Integrity "exit status values" are <= 255)
