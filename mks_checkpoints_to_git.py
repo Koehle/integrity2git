@@ -34,6 +34,7 @@ class CsvDictKeyConstants:
 # Global file definitions
 mks_all_chkpts_file = 'chkpts_all_revs.txt'# File contains all checkpoint revisions of the MKS project (write only)
 mks_prc_chkpts_file = 'chkpts_alx_revs.txt'# File contains all checkpoint revisions to be processed (write only)
+mks_brk_chkpts_file = 'chkpts_broken.txt'  # File contains checkpoint revisions with problems when creating a sandbox (read / write)
 mks_cmp_chkpts_file = 'chkpts_compared.txt'# File contains checkpoints already compared for the MKS project (write only)
 mks_exp_chkpts_file = 'chkpts_exported.txt'# File contains checkpoints already exported for the MKS project (write only)
 mks_ign_chkpts_file = 'chkpts_ignore.txt'  # File contains checkpoints to be ignored for the MKS project (read only)
@@ -56,6 +57,7 @@ git_marks_mks_rev_list  = []               # List with existing git marks and th
 mks_revs2marks_list = []                   # List of MKS revisions to determine the associated git mark number (*cu)
 mks_revisions_all_list = []                # List of all MKS checkpoint revisions for current project (*m)
 mks_revisions_prc_list = []                # List of all MKS checkpoint revisions to be processed (*cu)
+mks_revisions_brk_list = []                # List of broken MKS revisions with problems during export (*fu)
 mks_revisions_cmp_list = []                # List with compared MKS revisions - redundant and for checks only (*fu)
 mks_revisions_exp_list = []                # List with exported MKS revisions - redundant and for checks only (*fu)
 mks_revisions_ign_list = []                # List with MKS revisions to be ignored during export and comparison (*f)
@@ -73,6 +75,7 @@ IgnoreDirList=filecmp.DEFAULT_IGNORES      # use default directories to ignore f
 IgnoreFileTypes = ['.pj', '.gitattributes', '.gitignore']  # ignore these file types!
 dir_compare_errors = 0                     # error (results) of directory compare
 dir_comp_err_list  = []                    # error list, containing differences as strings
+op_mode : str = ''                         # script operation mode ("export" or "compare")
 
 # External compare tool "Meld" which can be used in case of comparison errors
 MELD_COMPARE_WINDOWS = 'C:\\Program Files (x86)\\Meld\\Meld.exe'
@@ -385,6 +388,7 @@ def write_list_to_file(git_sandbox_path,filename,data_list=[]):
 
 # Excecute an MKS command with the subprocess module
 def mks_cmd(cmd='', capture_output=False):
+    global op_mode, mks_revisions_brk_list
     # Try the MKS command several times
     for attempt in range(3):
         try:
@@ -400,8 +404,21 @@ def mks_cmd(cmd='', capture_output=False):
             exep_type = 'CalledProcessError'
             exit_code = e.returncode
             result    = e.returncode
-            if (exit_code == 128):      # General command failure
-                result = exit_code = 0  # Ignore this returncode
+            # When a "general command failure" occurs during "si createsandbox"
+            if ( (exit_code == 128) and (cmd.startswith('si createsandbox')) ):
+                result = exit_code = 0  # Ignore this error / returncode
+                # Check the operation mode of this script
+                if(op_mode == "export"):
+                    # Search for the MKS project revision string
+                    search_str = '--projectRevision='
+                    tmp_val = cmd.find(search_str)
+                    if (tmp_val != -1):
+                        # Extract the MKS project revision string
+                        tmp_str = cmd[(tmp_val + len(search_str)):]
+                        tmp_str = tmp_str[:tmp_str.find(' ')]
+                        # Append it to the broken revisions list
+                        mks_revisions_brk_list.append(tmp_str)
+            # In case of a "CalledProcessError" we don't try again
             break
         except subprocess.TimeoutExpired as e:
             # Take the timeout value + attempt as exit code (Note: MKS Integrity "exit status values" are <= 255)
@@ -864,6 +881,8 @@ else:
 git_marks_mks_rev_list = get_marks_and_revisions_from_file(git_sandbox_path,git_marks_rev_file)
 # Get list of already exported MKS revisions as initial value from file:
 mks_revisions_exp_list = get_marks_and_revisions_from_file(git_sandbox_path,mks_exp_chkpts_file)
+# Get a list of broken MKS revisions with problems during export
+mks_revisions_brk_list = get_marks_and_revisions_from_file(git_sandbox_path,mks_brk_chkpts_file)
 # Get list of already compared MKS revisions as initial value from file:
 mks_revisions_cmp_list = get_marks_and_revisions_from_file(git_sandbox_path,mks_cmp_chkpts_file)
 # Get number of already compared marks as initial value from file (necessary to skip compared MKS revisions):
@@ -970,6 +989,8 @@ write_list_to_file(git_sandbox_path, mks_all_chkpts_file, mks_revisions_all_list
 write_list_to_file(git_sandbox_path, mks_prc_chkpts_file, mks_revisions_prc_list)
 # List of already exported MKS revisions (export mode)
 write_list_to_file(git_sandbox_path, mks_exp_chkpts_file, mks_revisions_exp_list)
+# List of broken MKS revisions with problems during export (export mode)
+write_list_to_file(git_sandbox_path, mks_brk_chkpts_file, mks_revisions_brk_list)
 # List of already compared MKS revisions (compare mode)
 write_list_to_file(git_sandbox_path, mks_cmp_chkpts_file, mks_revisions_cmp_list)
 # List of remaining MKS revisions to be exported (export mode)
