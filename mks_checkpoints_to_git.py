@@ -32,6 +32,7 @@ class CsvDictKeyConstants:
     error_msg  = 'error_message'    # MKS error message taken from "stderr"
 
 # Global file definitions
+script_cmds_file    = 'script_cmds.txt'    # File contains additional commands for the script execution (read only)
 mks_all_chkpts_file = 'chkpts_all_revs.txt'# File contains all checkpoint revisions of the MKS project (write only)
 mks_prc_chkpts_file = 'chkpts_alx_revs.txt'# File contains all checkpoint revisions to be processed (write only)
 mks_brk_chkpts_file = 'chkpts_broken.txt'  # File contains checkpoint revisions with problems when creating a sandbox (read / write)
@@ -52,6 +53,7 @@ mks_revis_exp_file  = 'revisions_exp.txt'  # File contains number of exported re
 mks_revis_rem_file  = 'revisions_rem.txt'  # File contains number of remaining revisions (to export)
 
 # Global variables for git marks and MKS revisions
+script_cmds_list : list[str] = []          # Additional commands for the execution of this script (*f)
 git_marks_cmpd_at_start = 0                # Number of compared git marks at script start (*f)
 git_marks_mks_rev_list  = []               # List with existing git marks and the associated MKS revisions (*fu)
 mks_revs2marks_list = []                   # List of MKS revisions to determine the associated git mark number (*cu)
@@ -79,6 +81,9 @@ op_mode : str = ''                         # script operation mode ("export" or 
 
 # External compare tool "Meld" which can be used in case of comparison errors
 MELD_COMPARE_WINDOWS = 'C:\\Program Files (x86)\\Meld\\Meld.exe'
+
+# Commands for this script (constants) inside script commands file
+CMD_IGN_MKS_CREATE_SANDBOX_ERR = 'Ignore_MKS_Create_Sandbox_Errors'
 
 # Lists for git ref string manipulation (e.g. for devpaths or tags)
 REMOVE_GIT_CHAR_LIST = ['\\','|','?',':','"','<','>','[',']','*','~','^']
@@ -388,7 +393,7 @@ def write_list_to_file(git_sandbox_path,filename,data_list=[]):
 
 # Excecute an MKS command with the subprocess module
 def mks_cmd(cmd='', capture_output=False):
-    global op_mode, mks_revisions_brk_list
+    global op_mode, mks_revisions_brk_list, script_cmds_list
     # Try the MKS command several times
     for attempt in range(3):
         try:
@@ -406,18 +411,20 @@ def mks_cmd(cmd='', capture_output=False):
             result    = e.returncode
             # When a "general command failure" occurs during "si createsandbox"
             if ( (exit_code == 128) and (cmd.startswith('si createsandbox')) ):
-                result = exit_code = 0  # Ignore this error / returncode
-                # Check the operation mode of this script
-                if(op_mode == "export"):
-                    # Search for the MKS project revision string
-                    search_str = '--projectRevision='
-                    tmp_val = cmd.find(search_str)
-                    if (tmp_val != -1):
-                        # Extract the MKS project revision string
-                        tmp_str = cmd[(tmp_val + len(search_str)):]
-                        tmp_str = tmp_str[:tmp_str.find(' ')]
-                        # Append it to the broken revisions list
-                        mks_revisions_brk_list.append(tmp_str)
+                # If this error shall be ignored for this MKS project
+                if (CMD_IGN_MKS_CREATE_SANDBOX_ERR in script_cmds_list):
+                    result = exit_code = 0  # Ignore this error / returncode
+                    # Check the operation mode of this script
+                    if (op_mode == "export"):
+                        # Search for the MKS project revision string
+                        search_str = '--projectRevision='
+                        tmp_val = cmd.find(search_str)
+                        if (tmp_val != -1):
+                            # Extract the MKS project revision string
+                            tmp_str = cmd[(tmp_val + len(search_str)):]
+                            tmp_str = tmp_str[:tmp_str.find(' ')]
+                            # Append it to the broken revisions list
+                            mks_revisions_brk_list.append(tmp_str)
             # In case of a "CalledProcessError" we don't try again
             break
         except subprocess.TimeoutExpired as e:
@@ -877,6 +884,8 @@ else:
         exit(code = 609)
     # In export mode, the MKS and GIT sandbox locations are identical!
 
+# Get list of additional commands for this script from file:
+script_cmds_list = get_marks_and_revisions_from_file(git_sandbox_path,script_cmds_file)
 # Get list of already exported GIT marks and the associated MKS revisions as initial value from file:
 git_marks_mks_rev_list = get_marks_and_revisions_from_file(git_sandbox_path,git_marks_rev_file)
 # Get list of already exported MKS revisions as initial value from file:
