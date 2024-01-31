@@ -409,6 +409,12 @@ def mks_cmd(cmd='', capture_output=False):
             exep_type = 'CalledProcessError'
             exit_code = e.returncode
             result    = e.returncode
+            # When a "unknown command failure" occurs during "si viewprojecthistory"
+            if ( (exit_code == 125) and (cmd.startswith('si viewprojecthistory')) ):
+                # We do not know what happens sporadically in this case - this exit code is not documented!
+                # Wait a few seconds and try again...
+                time.sleep(5)
+                continue
             # When a "general command failure" occurs during "si createsandbox"
             if ( (exit_code == 128) and (cmd.startswith('si createsandbox')) ):
                 # If this error shall be ignored for this MKS project
@@ -437,7 +443,7 @@ def mks_cmd(cmd='', capture_output=False):
     if(exit_code != 0):
         # The MKS "cmd" message is forwarded to Git fast-import and is part of the "fast_import_crash" protocol,
         # as Git fast-import does not know our message (including the MKS command) and therefore stops execution as well!
-        print('Exception "%s" during MKS command "%s" with returncode "%d"' % (exep_type, cmd, exit_code))
+        print('Exception "%s" during MKS command "%s" with returncode "%d" on attempt "%d"' % (exep_type, cmd, exit_code, attempt))
         exit(exit_code)
     return result
 
@@ -554,7 +560,7 @@ def export_abort_continue(revision=[],ancestor_devpath='',last_mark=0,mark_limit
     global git_marks_mks_rev_list, mks_revisions_exp_list, mks_revisions_skipped
     # I noticed that the MKS client crashes when too many revisions are exported at once!
     # This mechanism is intended to divide the export to git into several steps...
-    ancestor_mark = 0            # mark of the ancestor revision we will use to continue 
+    ancestor_mark = 0            # mark of the ancestor revision we will use to continue
     # Check if the current MKS revision should be ignored?
     # This is a very special case to handle invalid checkpoints within a valid development path!
     # Normally all checkpoint revisions of a development path must be exported here!
@@ -652,7 +658,7 @@ def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',las
             # 1) we're starting a development path so we need to start from it was originally branched from
             # 2) we continue an earlier export and import at this point (start from there again)
             # 3) we ignore some invalid revisions of a development path and start again from a valid revision
-            sys.stdout.buffer.write(bytes(('from :%d\n' % ancestor_mark), 'utf-8')) 
+            sys.stdout.buffer.write(bytes(('from :%d\n' % ancestor_mark), 'utf-8'))
         sys.stdout.buffer.write(b'deleteall\n')
         tree = os.walk('.')
         for dir in tree:
@@ -804,7 +810,7 @@ def check_and_modify_devpath_name(dvpth_name:str='', existing_dvpths:list[str]=[
 
 # ==================================================================
 # Arguments for this script:
-# 
+#
 # sys.argv[0] = This script
 # sys.argv[1] = Operation mode ("compare" or "export" mode)
 # sys.argv[2] = MKS project    (MKS server project location)
