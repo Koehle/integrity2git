@@ -3,6 +3,7 @@
 
 import os
 import subprocess
+import shutil
 import copy
 import time
 import sys
@@ -84,6 +85,7 @@ MELD_COMPARE_WINDOWS = 'C:\\Program Files (x86)\\Meld\\Meld.exe'
 
 # Commands for this script (constants) inside script commands file
 CMD_IGN_MKS_CREATE_SANDBOX_ERR = 'Ignore_MKS_Create_Sandbox_Errors'
+CMD_USE_MKS_EXP_SANDBOX_TO_CMP = 'Use_MKS_Export_Sandbox_for_Comparison'
 
 # Lists for git ref string manipulation (e.g. for devpaths or tags)
 REMOVE_GIT_CHAR_LIST = ['\\','|','?',':','"','<','>','[',']','*','~','^']
@@ -112,6 +114,58 @@ def remove_umlaut(string):
     string = string.replace(ss, b'ss')
     string = string.decode('utf-8')
     return string
+
+# Check if a file is locked and cannot be moved
+def file_is_locked(path:str='') -> bool:
+    for (root,dirs,files) in os.walk(path):
+        for file in files:
+            fullpath_file = os.path.join(root,file)
+            # Check if fullpath of this file is valid?
+            if os.access(fullpath_file, os.F_OK) is False:
+                print(f'The file "{fullpath_file}" to be checked was not found!')
+                exit(code = 666)
+            # Check if the file can be read and written?
+            if os.access(fullpath_file, os.R_OK | os.W_OK) is False:
+                # Allow read and write access for this file
+                os.chmod(fullpath_file, 0o640)
+                # Check access rights again:
+                if os.access(fullpath_file, os.R_OK | os.W_OK) is False:
+                    # As soon as any file is locked (and can't be unlocked)
+                    return True
+            continue
+    # No file is locked
+    return False
+
+# Wait if files are locked and cannot be moved
+def wait_files_unlock(path:str='') -> None:
+    retry_limit : int = 50
+    while((file_is_locked(path) is True) and (retry_limit >= 0)):
+        retry_limit -= 1
+        time.sleep(0.1)
+    if(retry_limit < 0):
+        print('Error: Unlocking of files failed!')
+        exit(code=666)
+    return
+
+# Move MKS sandbox directory after dropping the sandbox without deleting it
+def move_mks_sandbox(src_path:str='', src_dir:str='', dst:str='') -> None:
+    src = os.path.join(src_path, src_dir) # fullpath of source
+    src_dir_at_dst = os.path.join(dst, src_dir)  # source dir at destination
+    # Check if the source exists?
+    if not os.path.isdir(src):
+        print(f'Missing source directory "{src}"')
+        exit(code = 666)
+    # Check if the destiniation exists?
+    if not os.path.isdir(dst):
+        print(f'Missing destination directory "{dst}"')
+        exit(code = 666)
+    # Check if the source directory exists at the destination?
+    if os.path.isdir(src_dir_at_dst):
+        # Remove existing source directory at the destination!
+        shutil.rmtree(src_dir_at_dst)
+    # Move source to destination
+    shutil.move(src, dst)
+    return
 
 # Some background information on the following function:
 # In our MKS integrity sandbox, there may be folders that contain only one *.pj file.
@@ -623,6 +677,7 @@ def export_abort_continue(revision=[],ancestor_devpath='',last_mark=0,mark_limit
 # Export of MKS revisions as GIT commits
 def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',last_mark=0,mark_limit=0):
     global IgnoreFileTypes, git_marks_mks_rev_list, mks_revisions_exp_list, mks_revisions_ign_list
+    global mks_compare_sandbox_path
     revisions_exported = int(0)
     abs_sandbox_path = os.getcwd()
     integrity_file = os.path.basename(mks_project)
@@ -699,7 +754,17 @@ def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',las
         sys.stdout.buffer.write(bytes(('from :%d\n' % mark), 'utf-8'))             # specify commit for this tag by "mark"
         # Drop the MKS sandbox
         os.chdir('..') # return to GIT directory
-        mks_cmd('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
+        # Check if the sandbox shall be deleted or copied to the compare directory?
+        if not (CMD_USE_MKS_EXP_SANDBOX_TO_CMP in script_cmds_list):
+            # The MKS sandbox shall be dropped and deleted
+            mks_cmd('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
+        else:
+            # The MKS sandbox shall be dropped without deletion and copied to the compare directory
+            mks_cmd('si dropsandbox --yes -f --delete=none "tmp%d/%s"' % (mark, integrity_file))
+            # Wait until all files within the sandbox are accessible and can be moved
+            wait_files_unlock(os.path.join(abs_sandbox_path, ("tmp"+str(mark))))
+            # Move the entire MKS sandbox to the compare directory for later use
+            move_mks_sandbox(abs_sandbox_path, ("tmp"+str(mark)), mks_compare_sandbox_path)
         # Create a list with git mark numbers and MKS revisions:
         TmpStr = ':' + str(mark) + ' ' + revision["number"]
         git_marks_mks_rev_list.append(TmpStr)
@@ -711,9 +776,10 @@ def export_to_git(mks_project='',revisions=[],devpath='',ancestor_devpath='',las
     return revisions_exported
 
 # Comparison of MKS revisions with the resulting GIT commits (after export)
-def compare_git_mks(mks_project='',revisions=[],mks_compare_sandbox_path='',git_sandbox_path='',git_mark_limit=0):
+def compare_git_mks(mks_project='',revisions=[],git_sandbox_path='',git_mark_limit=0):
     global git_marks_cmpd_at_start, git_marks_mks_rev_list, mks_revisions_cmp_list, mks_revisions_ign_list
     global IgnoreDirList, dir_compare_errors, dir_comp_err_list
+    global mks_compare_sandbox_path
     revisions_compared = int(0)
     integrity_file = os.path.basename(mks_project)
     for revision in revisions:
@@ -740,7 +806,15 @@ def compare_git_mks(mks_project='',revisions=[],mks_compare_sandbox_path='',git_
             exit(code = 666)
         # Create a build sandbox of the revision
         os.chdir(mks_compare_sandbox_path)
-        mks_cmd('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (mks_project, revision["number"], mark))
+        # Check if an existing sandbox (a copy from the export process) shall be used for comparison?
+        if not (CMD_USE_MKS_EXP_SANDBOX_TO_CMP in script_cmds_list):
+            # A new MKS sandbox shall be created for comparison
+            mks_cmd('si createsandbox --populate --recurse --project="%s" --projectRevision=%s --yes tmp%d' % (mks_project, revision["number"], mark))
+        else:
+            # An existing sandbox shall be used. Check if the sandbox directory exists?
+            if not (os.path.isdir(os.path.join(mks_compare_sandbox_path, ("tmp"+str(mark))))):
+                os.system('echo Error: Missing compare sandbox "%s" from the export process!' % ("tmp"+str(mark)))
+                exit(code = 666)
         os.chdir('tmp%d' % mark) #the reason why a number is added to the end of this is because MKS doesn't always drop the full file structure when it should, so they all should have unique names
         tmp_mks_compare_sandbox_path = os.getcwd()
         # Checkout GIT commit that belongs to this mark (and MKS revision) in detached head state
@@ -770,7 +844,15 @@ def compare_git_mks(mks_project='',revisions=[],mks_compare_sandbox_path='',git_
             exit(code = 666)
         # Drop the MKS sandbox
         os.chdir(mks_compare_sandbox_path)
-        mks_cmd('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
+        # Check if we have created a sandbox before?
+        if not (CMD_USE_MKS_EXP_SANDBOX_TO_CMP in script_cmds_list):
+            # Drop the MKS sandbox and delete the sandbox directory
+            mks_cmd('si dropsandbox --yes -f --delete=all "tmp%d/%s"' % (mark, integrity_file))
+        else:
+            # An existing MKS sandbox was used for comparison -> unlock all files
+            wait_files_unlock(os.path.join(mks_compare_sandbox_path, ("tmp"+str(mark))))
+            # Delete the MKS sandbox directory after successful comparison
+            shutil.rmtree(os.path.join(mks_compare_sandbox_path, ("tmp"+str(mark))))
         # Add revision number to MKS revisions compared list:
         mks_revisions_cmp_list.append(revision["number"])
         # Sum up compared revisions
@@ -961,14 +1043,14 @@ elif(op_mode == "compare"):
     # Compare MKS revisions with GIT commits (after a previous export).
     # The script can be run in this mode as a second step to check the export to GIT.
     master_revisions = retrieve_revisions(mks_project)  # revisions for the master branch
-    mks_revisions_compared += compare_git_mks(mks_project,master_revisions,mks_compare_sandbox_path,git_sandbox_path,git_mark_limit) # compare master branch
+    mks_revisions_compared += compare_git_mks(mks_project,master_revisions,git_sandbox_path,git_mark_limit) # compare master branch
     for devpath in devpaths:
         if(devpath[0] in mks_ignore_dvpths_s): # Check if this devpath is faulty and should be ignored
             continue                           # Skip invalid devpath!
         devpath_revisions = retrieve_revisions(mks_project,devpath[0],mks_missing_devpaths)  # revisions for a specific development path
         if(len(devpath_revisions) == 0): # Check number of revision entries for devpath (by "no entries" an invalid devpath is indicated).
             continue                     # Skip invalid devpath!
-        mks_revisions_compared += compare_git_mks(mks_project,devpath_revisions,mks_compare_sandbox_path,git_sandbox_path,git_mark_limit) # compare devpath branch
+        mks_revisions_compared += compare_git_mks(mks_project,devpath_revisions,git_sandbox_path,git_mark_limit) # compare devpath branch
     # --- end of compare mode ---
 
 # Calculation of remaining MKS revisions (after running this script) for checks and as a reminder for a later run of this script
