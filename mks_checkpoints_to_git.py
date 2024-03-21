@@ -530,8 +530,8 @@ def retrieve_revisions(mks_project='',devpath='',missing_devpaths=[]):
             os.system('echo Error: "%s" was not found in the missing devpaths list!' % (devpath))
             exit(code = 666)
     # Prepare checks with regular expressions
-    version_re = re.compile('[0-9]([\.0-9])+')
-    letters_re = re.compile('[^0-9.]') # matches any non-digit [^0-9] or non-dot [^.] character
+    version_re = re.compile(r'[0-9]([\.0-9])+')
+    letters_re = re.compile(r'[^0-9.]') # matches any non-digit [^0-9] or non-dot [^.] character
     revisions = []
     for version in versions:
         match = version_re.match(version) # check if version starts with a number
@@ -579,7 +579,7 @@ def retrieve_devpaths(mks_project='', missing_devpaths=[]):
     result = mks_cmd('si projectinfo --devpaths --noacl --noattributes --noshowCheckpointDescription --noassociatedIssues --project="%s"' % mks_project, capture_output=True)
     devpaths = result.stdout.decode('cp850') # decode('cp850') necessary because of german umlauts
     devpaths = devpaths [1:]
-    devpaths_re = re.compile('    (.+) \(([0-9][\.0-9]+)\)\n')
+    devpaths_re = re.compile(r'    (.+) \(([0-9][\.0-9]+)\)\n')
     devpath_col = devpaths_re.findall(devpaths)
     # Check for missing devpaths (manually added)
     if(len(missing_devpaths) > 0):
